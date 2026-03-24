@@ -75,6 +75,7 @@ window.Game = window.Game || {};
       mapHeightInput: null,
 
       dialogText: null,
+      languageSelect: null,
 
       top: {
         goldValue: null,
@@ -103,6 +104,11 @@ window.Game = window.Game || {};
     log: {
       lines: [],
       maxLines: 500
+    },
+
+    i18n: {
+      current: 'en',
+      messages: {}
     }
   };
 })();

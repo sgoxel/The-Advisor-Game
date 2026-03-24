@@ -82,6 +82,31 @@ body {
   transform: translateY(1px);
 }
 
+
+.lang-select-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  height: 42px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: linear-gradient(180deg, #2b3647 0%, #1b2431 100%);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.lang-select {
+  min-width: 72px;
+  height: 28px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  background: rgba(11, 16, 24, 0.9);
+  color: var(--text);
+  padding: 0 8px;
+}
+
 .secondary-btn {
   background: linear-gradient(180deg, #233041 0%, #18212d 100%);
 }

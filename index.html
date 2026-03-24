@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="tr">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -11,112 +11,112 @@
     <!-- Settings Modal -->
     <div id="settingsModal" class="modal-overlay hidden">
       <div class="modal-card">
-        <div class="modal-header">Ayarlar ve SEED Parametreleri</div>
+        <div class="modal-header" data-i18n="settings.title">Settings and SEED Parameters</div>
 
         <div class="modal-body">
           <div class="form-grid">
             <label class="form-field">
-              <span>SEED Kodu</span>
+              <span data-i18n="settings.seedCode">SEED Code</span>
               <input id="seedInput" type="text" value="SIMSOFT-001" maxlength="64" />
             </label>
 
             <div></div>
 
             <label class="form-field">
-              <span>Harita Genişliği</span>
+              <span data-i18n="settings.mapWidth">Map Width</span>
               <input id="mapWidthInput" type="number" min="12" max="80" step="1" value="24" />
             </label>
 
             <label class="form-field">
-              <span>Harita Yüksekliği</span>
+              <span data-i18n="settings.mapHeight">Map Height</span>
               <input id="mapHeightInput" type="number" min="12" max="80" step="1" value="24" />
             </label>
           </div>
 
           <div class="params-grid">
             <div class="params-group">
-              <div class="params-title">Topoloji</div>
+              <div class="params-title" data-i18n="settings.groups.topology">Topology</div>
 
               <label class="form-field">
-                <span>Dere Sayısı</span>
+                <span data-i18n="settings.streamCount">Stream Count</span>
                 <input id="paramStreams" type="text" readonly />
               </label>
 
               <label class="form-field">
-                <span>Göl</span>
+                <span data-i18n="settings.lake">Lake</span>
                 <input id="paramLake" type="text" readonly />
               </label>
 
               <label class="form-field">
-                <span>Tepe Sayısı</span>
+                <span data-i18n="settings.hillCount">Hill Count</span>
                 <input id="paramHills" type="text" readonly />
               </label>
 
               <label class="form-field">
-                <span>Tepelik Alan Oranı</span>
+                <span data-i18n="settings.hillArea">Hill Area Ratio</span>
                 <input id="paramHillArea" type="text" readonly />
               </label>
             </div>
 
             <div class="params-group">
-              <div class="params-title">Altyapı ve Arazi Kullanımı</div>
+              <div class="params-title" data-i18n="settings.groups.infrastructure">Infrastructure and Land Use</div>
 
               <label class="form-field">
-                <span>Yol Sayısı</span>
+                <span data-i18n="settings.roadCount">Road Count</span>
                 <input id="paramRoads" type="text" readonly />
               </label>
 
               <label class="form-field">
-                <span>Orman</span>
+                <span data-i18n="settings.forest">Forest</span>
                 <input id="paramForest" type="text" readonly />
               </label>
 
               <label class="form-field">
-                <span>Orman Alan Oranı</span>
+                <span data-i18n="settings.forestArea">Forest Area Ratio</span>
                 <input id="paramForestArea" type="text" readonly />
               </label>
 
               <label class="form-field">
-                <span>Yerleşim Alanı</span>
+                <span data-i18n="settings.settlement">Settlement Area</span>
                 <input id="paramSettlement" type="text" readonly />
               </label>
             </div>
 
             <div class="params-group">
-              <div class="params-title">Arazi Dağılımı</div>
+              <div class="params-title" data-i18n="settings.groups.distribution">Terrain Distribution</div>
 
               <label class="form-field">
-                <span>Çim Alan Oranı</span>
+                <span data-i18n="settings.grassArea">Grass Area Ratio</span>
                 <input id="paramGrassArea" type="text" readonly />
               </label>
 
               <label class="form-field">
-                <span>Toprak Alan Oranı</span>
+                <span data-i18n="settings.dirtArea">Dirt Area Ratio</span>
                 <input id="paramDirtArea" type="text" readonly />
               </label>
 
               <label class="form-field">
-                <span>Su Alan Oranı</span>
+                <span data-i18n="settings.waterArea">Water Area Ratio</span>
                 <input id="paramWaterArea" type="text" readonly />
               </label>
 
               <label class="form-field">
-                <span>Taşlık Alan Oranı</span>
+                <span data-i18n="settings.stoneArea">Stone Area Ratio</span>
                 <input id="paramStoneArea" type="text" readonly />
               </label>
             </div>
           </div>
 
-          <div class="modal-note">
-            Bu alanlar yalnızca SEED ve harita boyutundan türetilir.
-            Manuel düzenleme kapalıdır. Aynı SEED ve aynı boyutlar
-            girildiğinde uygulama aynı topoloji ve arazi dağılımını tekrar üretir.
+          <div class="modal-note" data-i18n="settings.note">
+            These fields are derived only from the SEED and map size.
+            Manual editing is disabled. When the same SEED and dimensions
+            are entered, the application regenerates the same topology and terrain distribution.
           </div>
         </div>
 
         <div class="modal-actions">
-          <button id="cancelSettingsBtn" class="menu-btn secondary-btn" type="button">İptal</button>
-          <button id="applySettingsBtn" class="menu-btn" type="button">Uygula</button>
+          <button id="cancelSettingsBtn" class="menu-btn secondary-btn" type="button" data-i18n="common.cancel">Cancel</button>
+          <button id="applySettingsBtn" class="menu-btn" type="button" data-i18n="common.apply">Apply</button>
         </div>
       </div>
     </div>
@@ -125,8 +125,8 @@
     <div id="logModal" class="modal-overlay hidden">
       <div class="modal-card log-card">
         <div class="modal-header modal-header-row">
-          <span>Uygulama Logları</span>
-          <button id="closeLogBtn" class="icon-btn" type="button" aria-label="Log penceresini kapat">×</button>
+          <span data-i18n="logs.title">Application Logs</span>
+          <button id="closeLogBtn" class="icon-btn" type="button" aria-label="Close log window" data-i18n-attr="aria-label:logs.closeAria">×</button>
         </div>
 
         <div class="modal-body log-body">
@@ -138,19 +138,27 @@
     <!-- Top Ribbon -->
     <header class="ribbon">
       <div class="top-left">
-        <button class="menu-btn" type="button">Ana Menü</button>
-        <button class="menu-btn" id="settingsBtn" type="button">Ayarlar</button>
-        <button class="menu-btn" id="logBtn" type="button">Log</button>
+        <button class="menu-btn" type="button" data-i18n="header.mainMenu">Main Menu</button>
+        <button class="menu-btn" id="settingsBtn" type="button" data-i18n="header.settings">Settings</button>
+        <button class="menu-btn" id="logBtn" type="button" data-i18n="header.log">Log</button>
+
+        <label class="lang-select-wrap" for="languageSelect">
+          <span data-i18n="header.language">Language</span>
+          <select id="languageSelect" class="lang-select">
+            <option value="en">EN</option>
+            <option value="tr">TR</option>
+          </select>
+        </label>
       </div>
 
       <div class="top-stats">
         <div class="resource-box">
-          <div class="label">Altın</div>
+          <div class="label" data-i18n="stats.gold">Gold</div>
           <div class="resource-value" id="goldValue">245</div>
         </div>
 
         <div class="stat-box">
-          <div class="label">Sağlık</div>
+          <div class="label" data-i18n="stats.health">Health</div>
           <div class="stat-top">
             <span>%<span id="healthText">82</span></span>
             <span>HP</span>
@@ -161,7 +169,7 @@
         </div>
 
         <div class="stat-box">
-          <div class="label">Stamina</div>
+          <div class="label" data-i18n="stats.stamina">Stamina</div>
           <div class="stat-top">
             <span>%<span id="staminaText">68</span></span>
             <span>STA</span>
@@ -172,7 +180,7 @@
         </div>
 
         <div class="stat-box">
-          <div class="label">Mana</div>
+          <div class="label" data-i18n="stats.mana">Mana</div>
           <div class="stat-top">
             <span>%<span id="manaText">54</span></span>
             <span>MP</span>
@@ -188,56 +196,56 @@
     <main id="center-area">
       <canvas id="gameCanvas"></canvas>
 
-      <div class="center-overlay">
-        Sol tık: tile seç<br />
-        Sürükle: kamera gezintisi<br />
-        Ok tuşları / WASD: haritada hareket<br />
-        Ayarlar: SEED tabanlı topoloji ve arazi parametreleri
+      <div class="center-overlay" data-i18n="overlay.instructionsHtml" data-i18n-html="true">
+        Left click: select tile<br />
+        Drag: move camera<br />
+        Arrow keys / WASD: navigate the map<br />
+        Settings: inspect SEED-based topology and terrain parameters
       </div>
     </main>
 
     <!-- Bottom Ribbon -->
     <footer class="bottom-ribbon">
       <section class="panel character-panel">
-        <div class="panel-header">Karakter</div>
+        <div class="panel-header" data-i18n="character.title">Character</div>
         <div class="character-body">
           <div class="thumbnail"></div>
           <div class="character-info">
-            <div class="character-name">Arin Valen</div>
-            <div class="character-meta">
-              Seviye 7 Korucu<br />
-              Bölge: Sisli Vadi<br />
-              Durum: Göreve hazır
+            <div class="character-name" data-i18n="character.name">Arin Valen</div>
+            <div class="character-meta" data-i18n="character.metaHtml" data-i18n-html="true">
+              Level 7 Ranger<br />
+              Region: Misty Valley<br />
+              Status: Ready for mission
             </div>
           </div>
         </div>
       </section>
 
       <section class="panel dialog-panel">
-        <div class="panel-header">Diyalog</div>
-        <div class="dialog-text" id="dialogText">
-          SEED tabanlı dünya üretimi aktif. Ayarlar menüsünden
-          üretilen topoloji ve altyapı parametrelerini inceleyebilirsin.
+        <div class="panel-header" data-i18n="dialog.title">Dialogue</div>
+        <div class="dialog-text" id="dialogText" data-i18n="dialog.defaultText">
+          SEED-based world generation is active. You can inspect
+          the generated topology and infrastructure parameters from the settings menu.
         </div>
 
         <div class="choices">
-          <button class="choice-btn" data-dialog="Kuzeye ilerlemeyi seçtin. Tepe yapısı ve geçiş koridorları gözlemleniyor.">
-            Kuzeye ilerle.
+          <button class="choice-btn" data-dialog-key="dialog.choiceResults.north" data-i18n="dialog.choices.north">
+            Move north.
           </button>
-          <button class="choice-btn" data-dialog="Doğu bölgesine yöneldin. Yol ve açık arazi yapısı daha belirgin görünüyor.">
-            Doğu bölgesine git.
+          <button class="choice-btn" data-dialog-key="dialog.choiceResults.east" data-i18n="dialog.choices.east">
+            Go to the eastern zone.
           </button>
-          <button class="choice-btn" data-dialog="Güney hattını inceledin. Su yapıları ve çevresel geçişler burada yoğunlaşmış olabilir.">
-            Güney hattını incele.
+          <button class="choice-btn" data-dialog-key="dialog.choiceResults.south" data-i18n="dialog.choices.south">
+            Inspect the southern route.
           </button>
-          <button class="choice-btn" data-dialog="Bulunduğun yerde kalıp topoloji parametrelerini değerlendirmeye devam ediyorsun.">
-            Bekle ve gözlem yap.
+          <button class="choice-btn" data-dialog-key="dialog.choiceResults.wait" data-i18n="dialog.choices.wait">
+            Wait and observe.
           </button>
         </div>
       </section>
 
       <section class="panel minimap-panel">
-        <div class="panel-header">Mini Harita</div>
+        <div class="panel-header" data-i18n="minimap.title">Mini Map</div>
         <canvas id="minimap"></canvas>
       </section>
     </footer>
@@ -252,6 +260,9 @@
   <script src="js/terrain.js"></script>
   <script src="js/renderer.js"></script>
   <script src="js/minimap.js"></script>
+  <script src="locales/en.js"></script>
+  <script src="locales/tr.js"></script>
+  <script src="js/i18n.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/input.js"></script>
   <script src="js/app.js"></script>

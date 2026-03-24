@@ -1,32 +1,8 @@
-/*
-  FILE PURPOSE:
-  Handle all UI interactions and user-facing logs.
-
-  DEPENDENCIES:
-  - state.js
-
-  PUBLIC API:
-  - Game.UI.cacheDom
-  - Game.UI.syncSettingsInputs
-  - Game.UI.updateParamUI
-  - Game.UI.openSettingsModal
-  - Game.UI.closeSettingsModal
-  - Game.UI.openLogModal
-  - Game.UI.closeLogModal
-  - Game.UI.addLog
-  - Game.UI.bindUIEvents
-  - Game.UI.updateDialogText
-  - Game.UI.bindChoiceButtons
-
-  IMPORTANT RULES:
-  - Keep DOM querying centralized.
-  - Keep log writes here so the app has a single logging surface.
-*/
-
 window.Game = window.Game || {};
 
 (function () {
   const State = window.Game.State;
+  const I18n = window.Game.I18n;
 
   function cacheDom() {
     const dom = State.dom;
@@ -35,7 +11,7 @@ window.Game = window.Game || {};
     dom.gl = dom.canvas.getContext("webgl", { antialias: true, alpha: false });
 
     if (!dom.gl) {
-      throw new Error("WebGL başlatılamadı. Tarayıcı veya GPU bu özelliği desteklemiyor olabilir.");
+      throw new Error(I18n.t("webgl.notSupported"));
     }
 
     dom.minimap = document.getElementById("minimap");
@@ -56,6 +32,7 @@ window.Game = window.Game || {};
     dom.mapHeightInput = document.getElementById("mapHeightInput");
 
     dom.dialogText = document.getElementById("dialogText");
+    dom.languageSelect = document.getElementById("languageSelect");
 
     dom.top.goldValue = document.getElementById("goldValue");
     dom.top.healthText = document.getElementById("healthText");
@@ -88,6 +65,14 @@ window.Game = window.Game || {};
     dom.mapHeightInput.value = world.rows;
   }
 
+  function percent(value) {
+    return I18n.t("paramValues.percent", { value });
+  }
+
+  function exists(flag) {
+    return flag ? I18n.t("paramValues.exists") : I18n.t("paramValues.notExists");
+  }
+
   function updateParamUI() {
     const p = State.world.params;
     const params = State.dom.params;
@@ -95,22 +80,23 @@ window.Game = window.Game || {};
     if (!p) return;
 
     params.streams.value = String(p.streamCount);
-    params.lake.value = p.hasLake ? "Var" : "Yok";
+    params.lake.value = exists(p.hasLake);
     params.hills.value = String(p.hillCount);
-    params.hillArea.value = `%${p.actualHillCoverage}`;
+    params.hillArea.value = percent(p.actualHillCoverage);
     params.roads.value = String(p.roadCount);
-    params.forest.value = p.hasForest ? "Var" : "Yok";
-    params.forestArea.value = `%${p.actualForestCoverage}`;
-    params.settlement.value = p.hasSettlement ? `%${p.actualSettlementCoverage}` : "Yok";
-    params.grassArea.value = `%${p.actualGrassCoverage}`;
-    params.dirtArea.value = `%${p.actualDirtCoverage}`;
-    params.waterArea.value = `%${p.actualWaterCoverage}`;
-    params.stoneArea.value = `%${p.actualStoneCoverage}`;
+    params.forest.value = exists(p.hasForest);
+    params.forestArea.value = percent(p.actualForestCoverage);
+    params.settlement.value = p.hasSettlement ? percent(p.actualSettlementCoverage) : I18n.t("paramValues.notExists");
+    params.grassArea.value = percent(p.actualGrassCoverage);
+    params.dirtArea.value = percent(p.actualDirtCoverage);
+    params.waterArea.value = percent(p.actualWaterCoverage);
+    params.stoneArea.value = percent(p.actualStoneCoverage);
   }
 
   function formatTime() {
     const now = new Date();
-    return now.toLocaleTimeString("tr-TR", { hour12: false });
+    const locale = State.i18n.current === "tr" ? "tr-TR" : "en-GB";
+    return now.toLocaleTimeString(locale, { hour12: false });
   }
 
   function stringifyDetails(details) {
@@ -129,49 +115,56 @@ window.Game = window.Game || {};
     }
   }
 
+  function renderLogs() {
+    if (State.dom.logText) {
+      State.dom.logText.value = State.log.lines.join("\n\n");
+      State.dom.logText.scrollTop = State.dom.logText.scrollHeight;
+    }
+  }
+
   function addLog(message, details) {
     const log = State.log;
     const detailText = stringifyDetails(details);
-    const line = detailText
-      ? `[${formatTime()}] ${message}
-${detailText}`
-      : `[${formatTime()}] ${message}`;
+    const line = detailText ? `[${formatTime()}] ${message}\n${detailText}` : `[${formatTime()}] ${message}`;
 
     log.lines.push(line);
     if (log.lines.length > log.maxLines) {
       log.lines.shift();
     }
 
-    if (State.dom.logText) {
-      State.dom.logText.value = log.lines.join("\n\n");
-      State.dom.logText.scrollTop = State.dom.logText.scrollHeight;
-    }
+    renderLogs();
   }
 
   function openSettingsModal() {
     syncSettingsInputs();
     updateParamUI();
     State.dom.settingsModal.classList.remove("hidden");
-    addLog("Ayarlar penceresi açıldı.");
+    addLog(I18n.t("logs.settingsOpened"));
   }
 
   function closeSettingsModal() {
     State.dom.settingsModal.classList.add("hidden");
-    addLog("Ayarlar penceresi kapatıldı.");
+    addLog(I18n.t("logs.settingsClosed"));
   }
 
   function openLogModal() {
     State.dom.logModal.classList.remove("hidden");
-    addLog("Log penceresi açıldı.");
+    addLog(I18n.t("logs.logOpened"));
   }
 
   function closeLogModal() {
     State.dom.logModal.classList.add("hidden");
-    addLog("Log penceresi kapatıldı.");
+    addLog(I18n.t("logs.logClosed"));
   }
 
   function updateDialogText(text) {
     State.dom.dialogText.textContent = text;
+  }
+
+  function applyCurrentLanguageToUI() {
+    I18n.applyTranslations();
+    updateParamUI();
+    renderLogs();
   }
 
   function bindChoiceButtons() {
@@ -179,8 +172,9 @@ ${detailText}`
 
     buttons.forEach((btn, index) => {
       btn.addEventListener("click", () => {
-        updateDialogText(btn.dataset.dialog);
-        addLog(`Diyalog seçimi yapıldı: ${btn.textContent.trim()}`);
+        const dialogKey = btn.dataset.dialogKey;
+        updateDialogText(I18n.t(dialogKey));
+        addLog(I18n.t("logs.dialogChoice", { choice: btn.textContent.trim() }));
 
         const top = State.dom.top;
 
@@ -203,13 +197,16 @@ ${detailText}`
     });
   }
 
-  function bindUIEvents(onApplySettings) {
+  function bindUIEvents(onApplySettings, onLanguageChange) {
     const dom = State.dom;
 
     dom.settingsBtn.addEventListener("click", openSettingsModal);
     dom.cancelSettingsBtn.addEventListener("click", closeSettingsModal);
     dom.logBtn.addEventListener("click", openLogModal);
     dom.closeLogBtn.addEventListener("click", closeLogModal);
+    dom.languageSelect.addEventListener("change", (event) => {
+      onLanguageChange(event.target.value);
+    });
 
     dom.settingsModal.addEventListener("click", (event) => {
       if (event.target === dom.settingsModal) {
@@ -237,6 +234,7 @@ ${detailText}`
     addLog,
     bindUIEvents,
     updateDialogText,
-    bindChoiceButtons
+    bindChoiceButtons,
+    applyCurrentLanguageToUI
   };
 })();

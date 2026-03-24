@@ -1,18 +1,3 @@
-/*
-  FILE PURPOSE:
-  Application bootstrap and main loop orchestration.
-
-  DEPENDENCIES:
-  - all previous files
-
-  PUBLIC API:
-  - none required, this is the startup file
-
-  IMPORTANT RULES:
-  - Keep startup flow readable.
-  - Use this file to connect modules together.
-*/
-
 window.Game = window.Game || {};
 
 (function () {
@@ -24,6 +9,7 @@ window.Game = window.Game || {};
   const Minimap = window.Game.Minimap;
   const UI = window.Game.UI;
   const Input = window.Game.Input;
+  const I18n = window.Game.I18n;
 
   function rebuildWorld(seed, cols, rows) {
     const world = State.world;
@@ -46,7 +32,20 @@ window.Game = window.Game || {};
     UI.updateParamUI();
     Renderer.centerCamera();
     Renderer.markDirty();
-    UI.addLog(`Dünya yeniden oluşturuldu. SEED=${seed}, boyut=${cols}x${rows}`);
+    UI.addLog(I18n.t("logs.worldRebuilt", { seed, cols, rows }));
+  }
+
+  function updateWorldSummary(seed, cols, rows) {
+    UI.updateDialogText(
+      I18n.t("dialog.worldSummary", {
+        seed,
+        cols,
+        rows,
+        hills: State.world.params.hillCount,
+        streams: State.world.params.streamCount,
+        roads: State.world.params.roadCount
+      })
+    );
   }
 
   function handleApplySettings() {
@@ -58,11 +57,14 @@ window.Game = window.Game || {};
 
     rebuildWorld(seed, cols, rows);
     UI.closeSettingsModal();
-    UI.addLog(`Ayarlar uygulandı. Yeni SEED=${seed}, yeni boyut=${cols}x${rows}`);
+    UI.addLog(I18n.t("logs.settingsApplied", { seed, cols, rows }));
+    updateWorldSummary(seed, cols, rows);
+  }
 
-    UI.updateDialogText(
-      `Yeni dünya üretildi. SEED: ${seed} | Boyut: ${cols} x ${rows} | Tepe: ${State.world.params.hillCount} | Dere: ${State.world.params.streamCount} | Yol: ${State.world.params.roadCount}`
-    );
+  async function handleLanguageChange(lang) {
+    await I18n.loadLanguage(lang);
+    UI.applyCurrentLanguageToUI();
+    updateWorldSummary(State.world.seed, State.world.cols, State.world.rows);
   }
 
   function resizeAll() {
@@ -79,7 +81,7 @@ window.Game = window.Game || {};
   }
 
   function normalizeUrl(url) {
-    if (!url) return "(bilgi yok)";
+    if (!url) return I18n.t("logs.unknownSource");
     try {
       const parsed = new URL(url, window.location.href);
       const parts = parsed.pathname.split("/");
@@ -90,27 +92,27 @@ window.Game = window.Game || {};
   }
 
   function formatStack(error) {
-    if (!error || !error.stack) return "Stack bilgisi yok.";
+    if (!error || !error.stack) return I18n.t("logs.noStack");
     return error.stack;
   }
 
   function buildErrorDetails(message, source, lineno, colno, errorObj, extra) {
     const detailLines = [
-      `Mesaj      : ${message || "Bilinmeyen hata"}`,
-      `Dosya      : ${normalizeUrl(source)}`,
-      `Satır      : ${lineno || 0}`,
-      `Sütun      : ${colno || 0}`
+      `${I18n.t("logs.message")}    : ${message || I18n.t("logs.unknown")}`,
+      `${I18n.t("logs.file")}      : ${normalizeUrl(source)}`,
+      `${I18n.t("logs.line")}      : ${lineno || 0}`,
+      `${I18n.t("logs.column")}    : ${colno || 0}`
     ];
 
     if (extra) {
-      detailLines.push(`Ek Bilgi    : ${extra}`);
+      detailLines.push(`${I18n.t("logs.extraInfo")} : ${extra}`);
     }
 
     if (errorObj && errorObj.name) {
-      detailLines.push(`Hata Tipi   : ${errorObj.name}`);
+      detailLines.push(`${I18n.t("logs.errorType")} : ${errorObj.name}`);
     }
 
-    detailLines.push("Stack      :");
+    detailLines.push(`${I18n.t("logs.stack")}     :`);
     detailLines.push(formatStack(errorObj));
 
     return detailLines.join("\n");
@@ -123,7 +125,7 @@ window.Game = window.Game || {};
 
     window.onerror = function (message, source, lineno, colno, errorObj) {
       if (ignoreFileOriginWarning(message)) return true;
-      UI.addLog("HATA: Çalışma zamanı hatası yakalandı.", buildErrorDetails(message, source, lineno, colno, errorObj));
+      UI.addLog(I18n.t("logs.runtimeError"), buildErrorDetails(message, source, lineno, colno, errorObj));
       return false;
     };
 
@@ -131,7 +133,7 @@ window.Game = window.Game || {};
       if (ignoreFileOriginWarning(event.message)) return;
       if (event.error || event.message) {
         UI.addLog(
-          "HATA: Global error event yakalandı.",
+          I18n.t("logs.globalError"),
           buildErrorDetails(event.message, event.filename, event.lineno, event.colno, event.error)
         );
         return;
@@ -139,10 +141,17 @@ window.Game = window.Game || {};
 
       const target = event.target;
       if (target && target !== window) {
-        const source = target.src || target.href || target.currentSrc || "(kaynak bilgisi yok)";
+        const source = target.src || target.href || target.currentSrc || I18n.t("logs.unknownSource");
         UI.addLog(
-          "HATA: Statik kaynak yüklenemedi.",
-          buildErrorDetails("Kaynak yükleme hatası", source, 0, 0, null, `Etiket: <${String(target.tagName || "unknown").toLowerCase()}>`)
+          I18n.t("logs.staticResourceFailed"),
+          buildErrorDetails(
+            I18n.t("logs.resourceLoadError"),
+            source,
+            0,
+            0,
+            null,
+            `${I18n.t("logs.tag")}: <${String(target.tagName || "unknown").toLowerCase()}>`
+          )
         );
       }
     }, true);
@@ -151,33 +160,38 @@ window.Game = window.Game || {};
       const reason = event.reason;
       const reasonMessage = reason && reason.message ? reason.message : String(reason);
       UI.addLog(
-        "PROMISE HATASI: Yakalanmamış promise rejection.",
+        I18n.t("logs.promiseRejection"),
         buildErrorDetails(reasonMessage, reason && reason.fileName, reason && reason.lineNumber, reason && reason.columnNumber, reason)
       );
     });
   }
 
-  function init() {
-    UI.cacheDom();
-    UI.bindUIEvents(handleApplySettings);
-    UI.bindChoiceButtons();
-    Input.bindInputEvents();
-    Minimap.bindMinimapEvents();
-    registerGlobalErrorHandlers();
+  async function init() {
+    try {
+      await I18n.loadLanguage(I18n.getPreferredLanguage());
+      UI.cacheDom();
+      UI.bindUIEvents(handleApplySettings, handleLanguageChange);
+      UI.bindChoiceButtons();
+      Input.bindInputEvents();
+      Minimap.bindMinimapEvents();
+      registerGlobalErrorHandlers();
+      UI.applyCurrentLanguageToUI();
 
-    resizeAll();
-    if (window.location.protocol === "file:") {
-      UI.addLog("BİLGİ: Uygulama file:// üzerinden açıldı. Chrome güvenlik politikası nedeniyle DevTools'ta file origin uyarısı görünebilir. En temiz çalışma için local server kullanın.");
-    }
-    UI.addLog("Uygulama başlatıldı.");
-    rebuildWorld(Config.DEFAULT_SEED, Config.DEFAULT_COLS, Config.DEFAULT_ROWS);
-
-    window.addEventListener("resize", () => {
       resizeAll();
-      UI.addLog("Pencere yeniden boyutlandırıldı.");
-    });
+      UI.addLog(I18n.t("logs.appStarted"));
+      rebuildWorld(Config.DEFAULT_SEED, Config.DEFAULT_COLS, Config.DEFAULT_ROWS);
+      updateWorldSummary(Config.DEFAULT_SEED, Config.DEFAULT_COLS, Config.DEFAULT_ROWS);
 
-    loop();
+      window.addEventListener("resize", () => {
+        resizeAll();
+        UI.addLog(I18n.t("logs.windowResized"));
+      });
+
+      loop();
+    } catch (error) {
+      console.error(error);
+      alert(error.message || String(error));
+    }
   }
 
   window.addEventListener("DOMContentLoaded", init);
