@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Isometric Game Prototype</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal-overlay hidden">
+      <div class="modal-card">
+        <div class="modal-header">Ayarlar ve SEED Parametreleri</div>
+
+        <div class="modal-body">
+          <div class="form-grid">
+            <label class="form-field">
+              <span>SEED Kodu</span>
+              <input id="seedInput" type="text" value="SIMSOFT-001" maxlength="64" />
+            </label>
+
+            <div></div>
+
+            <label class="form-field">
+              <span>Harita Genişliği</span>
+              <input id="mapWidthInput" type="number" min="12" max="80" step="1" value="24" />
+            </label>
+
+            <label class="form-field">
+              <span>Harita Yüksekliği</span>
+              <input id="mapHeightInput" type="number" min="12" max="80" step="1" value="24" />
+            </label>
+          </div>
+
+          <div class="params-grid">
+            <div class="params-group">
+              <div class="params-title">Topoloji</div>
+
+              <label class="form-field">
+                <span>Dere Sayısı</span>
+                <input id="paramStreams" type="text" readonly />
+              </label>
+
+              <label class="form-field">
+                <span>Göl</span>
+                <input id="paramLake" type="text" readonly />
+              </label>
+
+              <label class="form-field">
+                <span>Tepe Sayısı</span>
+                <input id="paramHills" type="text" readonly />
+              </label>
+
+              <label class="form-field">
+                <span>Tepelik Alan Oranı</span>
+                <input id="paramHillArea" type="text" readonly />
+              </label>
+            </div>
+
+            <div class="params-group">
+              <div class="params-title">Altyapı ve Arazi Kullanımı</div>
+
+              <label class="form-field">
+                <span>Yol Sayısı</span>
+                <input id="paramRoads" type="text" readonly />
+              </label>
+
+              <label class="form-field">
+                <span>Orman</span>
+                <input id="paramForest" type="text" readonly />
+              </label>
+
+              <label class="form-field">
+                <span>Orman Alan Oranı</span>
+                <input id="paramForestArea" type="text" readonly />
+              </label>
+
+              <label class="form-field">
+                <span>Yerleşim Alanı</span>
+                <input id="paramSettlement" type="text" readonly />
+              </label>
+            </div>
+
+            <div class="params-group">
+              <div class="params-title">Arazi Dağılımı</div>
+
+              <label class="form-field">
+                <span>Çim Alan Oranı</span>
+                <input id="paramGrassArea" type="text" readonly />
+              </label>
+
+              <label class="form-field">
+                <span>Toprak Alan Oranı</span>
+                <input id="paramDirtArea" type="text" readonly />
+              </label>
+
+              <label class="form-field">
+                <span>Su Alan Oranı</span>
+                <input id="paramWaterArea" type="text" readonly />
+              </label>
+
+              <label class="form-field">
+                <span>Taşlık Alan Oranı</span>
+                <input id="paramStoneArea" type="text" readonly />
+              </label>
+            </div>
+          </div>
+
+          <div class="modal-note">
+            Bu alanlar yalnızca SEED ve harita boyutundan türetilir.
+            Manuel düzenleme kapalıdır. Aynı SEED ve aynı boyutlar
+            girildiğinde uygulama aynı topoloji ve arazi dağılımını tekrar üretir.
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button id="cancelSettingsBtn" class="menu-btn secondary-btn" type="button">İptal</button>
+          <button id="applySettingsBtn" class="menu-btn" type="button">Uygula</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Log Modal -->
+    <div id="logModal" class="modal-overlay hidden">
+      <div class="modal-card log-card">
+        <div class="modal-header modal-header-row">
+          <span>Uygulama Logları</span>
+          <button id="closeLogBtn" class="icon-btn" type="button" aria-label="Log penceresini kapat">×</button>
+        </div>
+
+        <div class="modal-body log-body">
+          <textarea id="logText" class="log-text" readonly spellcheck="false"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- Top Ribbon -->
+    <header class="ribbon">
+      <div class="top-left">
+        <button class="menu-btn" type="button">Ana Menü</button>
+        <button class="menu-btn" id="settingsBtn" type="button">Ayarlar</button>
+        <button class="menu-btn" id="logBtn" type="button">Log</button>
+      </div>
+
+      <div class="top-stats">
+        <div class="resource-box">
+          <div class="label">Altın</div>
+          <div class="resource-value" id="goldValue">245</div>
+        </div>
+
+        <div class="stat-box">
+          <div class="label">Sağlık</div>
+          <div class="stat-top">
+            <span>%<span id="healthText">82</span></span>
+            <span>HP</span>
+          </div>
+          <div class="bar">
+            <div class="fill health" id="healthBar" style="width: 82%;"></div>
+          </div>
+        </div>
+
+        <div class="stat-box">
+          <div class="label">Stamina</div>
+          <div class="stat-top">
+            <span>%<span id="staminaText">68</span></span>
+            <span>STA</span>
+          </div>
+          <div class="bar">
+            <div class="fill stamina" id="staminaBar" style="width: 68%;"></div>
+          </div>
+        </div>
+
+        <div class="stat-box">
+          <div class="label">Mana</div>
+          <div class="stat-top">
+            <span>%<span id="manaText">54</span></span>
+            <span>MP</span>
+          </div>
+          <div class="bar">
+            <div class="fill mana" id="manaBar" style="width: 54%;"></div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Game Area -->
+    <main id="center-area">
+      <canvas id="gameCanvas"></canvas>
+
+      <div class="center-overlay">
+        Sol tık: tile seç<br />
+        Sürükle: kamera gezintisi<br />
+        Ok tuşları / WASD: haritada hareket<br />
+        Ayarlar: SEED tabanlı topoloji ve arazi parametreleri
+      </div>
+    </main>
+
+    <!-- Bottom Ribbon -->
+    <footer class="bottom-ribbon">
+      <section class="panel character-panel">
+        <div class="panel-header">Karakter</div>
+        <div class="character-body">
+          <div class="thumbnail"></div>
+          <div class="character-info">
+            <div class="character-name">Arin Valen</div>
+            <div class="character-meta">
+              Seviye 7 Korucu<br />
+              Bölge: Sisli Vadi<br />
+              Durum: Göreve hazır
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel dialog-panel">
+        <div class="panel-header">Diyalog</div>
+        <div class="dialog-text" id="dialogText">
+          SEED tabanlı dünya üretimi aktif. Ayarlar menüsünden
+          üretilen topoloji ve altyapı parametrelerini inceleyebilirsin.
+        </div>
+
+        <div class="choices">
+          <button class="choice-btn" data-dialog="Kuzeye ilerlemeyi seçtin. Tepe yapısı ve geçiş koridorları gözlemleniyor.">
+            Kuzeye ilerle.
+          </button>
+          <button class="choice-btn" data-dialog="Doğu bölgesine yöneldin. Yol ve açık arazi yapısı daha belirgin görünüyor.">
+            Doğu bölgesine git.
+          </button>
+          <button class="choice-btn" data-dialog="Güney hattını inceledin. Su yapıları ve çevresel geçişler burada yoğunlaşmış olabilir.">
+            Güney hattını incele.
+          </button>
+          <button class="choice-btn" data-dialog="Bulunduğun yerde kalıp topoloji parametrelerini değerlendirmeye devam ediyorsun.">
+            Bekle ve gözlem yap.
+          </button>
+        </div>
+      </section>
+
+      <section class="panel minimap-panel">
+        <div class="panel-header">Mini Harita</div>
+        <canvas id="minimap"></canvas>
+      </section>
+    </footer>
+  </div>
+
+  <!-- Script order is important -->
+  <script src="js/config.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/rng.js"></script>
+  <script src="js/topology.js"></script>
+  <script src="js/terrain.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/minimap.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
