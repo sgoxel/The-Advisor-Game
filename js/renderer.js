@@ -161,21 +161,50 @@ window.Game = window.Game || {};
     return inside;
   }
 
-  function centerCameraOnTile(row, col) {
+  function centerCameraOnWorld(x, y) {
     const dom = State.dom;
     if (!dom.canvas) return;
+    const nextX = dom.canvas.clientWidth / 2 - x;
+    const nextY = dom.canvas.clientHeight / 2 - y;
+    if (Math.abs(State.camera.x - nextX) > 0.01 || Math.abs(State.camera.y - nextY) > 0.01) {
+      State.camera.x = nextX;
+      State.camera.y = nextY;
+      markDirty();
+    }
+  }
 
-    const metrics = getHexMetrics();
+  function getPlayerWorldPosition() {
+    const player = State.world.player;
+    if (!player) return { x: 0, y: 0 };
+
+    if (!player.moving) {
+      return gridToScreen(player.row, player.col, 0, 0);
+    }
+
+    const start = gridToScreen(player.startRow, player.startCol, 0, 0);
+    const end = gridToScreen(player.targetRow, player.targetCol, 0, 0);
+    const t = Math.max(0, Math.min(1, player.progress || 0));
+    return {
+      x: start.x + (end.x - start.x) * t,
+      y: start.y + (end.y - start.y) * t
+    };
+  }
+
+  function centerCameraOnTile(row, col) {
     const tile = gridToScreen(row, col, 0, 0);
-    State.camera.x = dom.canvas.clientWidth / 2 - tile.x;
-    State.camera.y = dom.canvas.clientHeight / 2 - tile.y;
-    markDirty();
+    centerCameraOnWorld(tile.x, tile.y);
   }
 
   function centerCamera() {
+    const playerPos = getPlayerWorldPosition();
+    centerCameraOnWorld(playerPos.x, playerPos.y);
+  }
+
+  function updateCameraFollow() {
     const player = State.world.player;
-    if (!player) return;
-    centerCameraOnTile(player.row, player.col);
+    if (!State.camera.followPlayer || !player || !player.moving) return;
+    const playerPos = getPlayerWorldPosition();
+    centerCameraOnWorld(playerPos.x, playerPos.y);
   }
 
   function resizeCanvas() {
@@ -269,6 +298,50 @@ window.Game = window.Game || {};
     gl.drawArrays(gl.LINE_LOOP, 0, vertices.length / 2);
   }
 
+
+  function drawEllipse(gl, cx, cy, radiusX, radiusY, rgba, segments) {
+    const count = Math.max(12, segments || 24);
+    const vertices = [];
+    for (let i = 0; i < count; i++) {
+      const a0 = (i / count) * Math.PI * 2;
+      const a1 = ((i + 1) / count) * Math.PI * 2;
+      vertices.push(
+        cx, cy,
+        cx + Math.cos(a0) * radiusX, cy + Math.sin(a0) * radiusY,
+        cx + Math.cos(a1) * radiusX, cy + Math.sin(a1) * radiusY
+      );
+    }
+    drawTriangles(gl, vertices, rgba);
+  }
+
+  function drawCapsule(gl, x1, y1, x2, y2, radius, rgba) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const length = Math.hypot(dx, dy);
+
+    if (length < 0.0001) {
+      drawEllipse(gl, x1, y1, radius, radius, rgba, 20);
+      return;
+    }
+
+    const nx = -dy / length;
+    const ny = dx / length;
+
+    const bodyVertices = [
+      x1 + nx * radius, y1 + ny * radius,
+      x1 - nx * radius, y1 - ny * radius,
+      x2 + nx * radius, y2 + ny * radius,
+
+      x2 + nx * radius, y2 + ny * radius,
+      x1 - nx * radius, y1 - ny * radius,
+      x2 - nx * radius, y2 - ny * radius
+    ];
+
+    drawTriangles(gl, bodyVertices, rgba);
+    drawEllipse(gl, x1, y1, radius, radius, rgba, 20);
+    drawEllipse(gl, x2, y2, radius, radius, rgba, 20);
+  }
+
   function getHexOutlineVertices(cx, cy, hexWidth, hexHeight) {
     const radiusY = hexHeight / 2;
     const radiusX = hexWidth / 2;
@@ -314,44 +387,155 @@ window.Game = window.Game || {};
     drawLineLoop(gl, vertices, [0.97, 0.87, 0.48, 1]);
   }
 
-  function drawPlayer(gl, pos, hexWidth, hexHeight) {
-    const bodyWidth = hexWidth * 0.18;
-    const bodyHeight = hexHeight * 0.36;
-    const centerX = pos.x;
-    const centerY = pos.y + hexHeight * 0.02;
+  function drawArrowMarker(gl, fromPos, toPos, hexWidth, hexHeight) {
+    const dx = toPos.x - fromPos.x;
+    const dy = toPos.y - fromPos.y;
+    const length = Math.hypot(dx, dy) || 1;
+    const ux = dx / length;
+    const uy = dy / length;
+    const px = -uy;
+    const py = ux;
 
-    const body = [
-      centerX - bodyWidth / 2, centerY - bodyHeight / 2,
-      centerX + bodyWidth / 2, centerY - bodyHeight / 2,
-      centerX + bodyWidth / 2, centerY + bodyHeight / 2,
-      centerX - bodyWidth / 2, centerY + bodyHeight / 2
-    ];
+    const bodyLength = hexHeight * 0.46;
+    const headLength = hexHeight * 0.24;
+    const bodyHalf = hexHeight * 0.085;
+    const headHalf = hexHeight * 0.16;
+    const startOffset = -hexHeight * 0.10;
 
-    const bodyTriangles = [
-      body[0], body[1], body[2], body[3], body[4], body[5],
-      body[0], body[1], body[4], body[5], body[6], body[7]
-    ];
+    const sx = fromPos.x + ux * startOffset;
+    const sy = fromPos.y + uy * startOffset;
+    const bx = sx + ux * bodyLength;
+    const by = sy + uy * bodyLength;
+    const hx = bx + ux * headLength;
+    const hy = by + uy * headLength;
 
-    drawTriangles(gl, bodyTriangles, [0.90, 0.26, 0.24, 1]);
-    drawLineLoop(gl, body, [0.18, 0.08, 0.08, 1]);
+    const bodyColor = [0.39, 0.07, 0.18, 0.72];
+    const headColor = [0.57, 0.13, 0.27, 0.94];
+    const accentColor = [0.67, 0.22, 0.35, 0.60];
 
-    const headRadius = Math.max(5, hexHeight * 0.10);
-    const headCenterX = centerX;
-    const headCenterY = centerY - bodyHeight / 2 - headRadius * 0.25;
-    const headVertices = [];
-    const segments = 18;
+    drawTriangles(gl, [
+      sx + px * bodyHalf, sy + py * bodyHalf,
+      sx - px * bodyHalf, sy - py * bodyHalf,
+      bx + px * bodyHalf, by + py * bodyHalf,
 
-    for (let i = 0; i < segments; i++) {
-      const a1 = (i / segments) * Math.PI * 2;
-      const a2 = ((i + 1) / segments) * Math.PI * 2;
-      headVertices.push(
-        headCenterX, headCenterY,
-        headCenterX + Math.cos(a1) * headRadius, headCenterY + Math.sin(a1) * headRadius,
-        headCenterX + Math.cos(a2) * headRadius, headCenterY + Math.sin(a2) * headRadius
-      );
+      bx + px * bodyHalf, by + py * bodyHalf,
+      sx - px * bodyHalf, sy - py * bodyHalf,
+      bx - px * bodyHalf, by - py * bodyHalf
+    ], bodyColor);
+
+    drawTriangles(gl, [
+      bx + px * headHalf, by + py * headHalf,
+      bx - px * headHalf, by - py * headHalf,
+      hx, hy
+    ], headColor);
+
+    drawTriangles(gl, [
+      sx + px * bodyHalf * 0.45, sy + py * bodyHalf * 0.45,
+      sx - px * bodyHalf * 0.45, sy - py * bodyHalf * 0.45,
+      bx + px * bodyHalf * 0.45, by + py * bodyHalf * 0.45,
+
+      bx + px * bodyHalf * 0.45, by + py * bodyHalf * 0.45,
+      sx - px * bodyHalf * 0.45, sy - py * bodyHalf * 0.45,
+      bx - px * bodyHalf * 0.45, by - py * bodyHalf * 0.45
+    ], accentColor);
+  }
+
+  function drawPreviewRoute(gl, path, metrics) {
+    if (!path || path.length < 2) return;
+    for (let i = 0; i < path.length - 1; i++) {
+      const current = gridToScreen(path[i].row, path[i].col);
+      const next = gridToScreen(path[i + 1].row, path[i + 1].col);
+      drawArrowMarker(gl, current, next, metrics.hexWidth, metrics.hexHeight);
     }
+  }
 
-    drawTriangles(gl, headVertices, [0.96, 0.83, 0.66, 1]);
+  function drawPlayer(gl, pos, hexWidth, hexHeight) {
+    const centerX = pos.x;
+    // Feet contact point must match the tile center point.
+    const groundY = pos.y;
+
+    // Global scale reduced ~25% from the previous version.
+    const unit = hexHeight * 0.145;
+    const white = [0.93, 0.94, 0.96, 1];
+    const mid = [0.82, 0.84, 0.88, 1];
+    const dark = [0.58, 0.61, 0.68, 1];
+    const shadow = [0.16, 0.24, 0.16, 0.18];
+    const softShade = [0.74, 0.76, 0.82, 0.32];
+    const outline = [0.34, 0.36, 0.42, 0.50];
+
+    // 45-degree ground shadow, kept centered under the tile.
+    drawEllipse(gl, centerX + unit * 0.50, groundY + unit * 0.18, unit * 1.65, unit * 0.56, shadow, 32);
+
+    // Height balance: longer legs, shorter total character.
+    const pelvisY = groundY - unit * 2.20;
+    const waistY = pelvisY - unit * 0.16;
+    const abdomenY = pelvisY - unit * 0.68;
+    const chestY = pelvisY - unit * 1.34;
+    const shoulderY = pelvisY - unit * 1.65;
+    const neckY = pelvisY - unit * 1.98;
+    const headY = pelvisY - unit * 2.64;
+
+    // Legs ~50% longer and more vertical.
+    const leftHipX = centerX - unit * 0.36;
+    const rightHipX = centerX + unit * 0.36;
+    const kneeY = groundY - unit * 1.08;
+    const ankleY = groundY - unit * 0.16;
+    const leftKneeX = centerX - unit * 0.42;
+    const rightKneeX = centerX + unit * 0.42;
+    const leftAnkleX = centerX - unit * 0.32;
+    const rightAnkleX = centerX + unit * 0.32;
+
+    drawCapsule(gl, leftHipX, pelvisY + unit * 0.10, leftKneeX, kneeY, unit * 0.25, white);
+    drawCapsule(gl, rightHipX, pelvisY + unit * 0.10, rightKneeX, kneeY, unit * 0.25, white);
+    drawCapsule(gl, leftKneeX, kneeY, leftAnkleX, ankleY, unit * 0.20, white);
+    drawCapsule(gl, rightKneeX, kneeY, rightAnkleX, ankleY, unit * 0.20, white);
+
+    drawEllipse(gl, leftAnkleX - unit * 0.02, groundY + unit * 0.03, unit * 0.30, unit * 0.15, mid, 22);
+    drawEllipse(gl, rightAnkleX + unit * 0.02, groundY + unit * 0.03, unit * 0.30, unit * 0.15, mid, 22);
+
+    // Pelvis and torso.
+    drawEllipse(gl, centerX, pelvisY + unit * 0.12, unit * 0.72, unit * 0.32, white, 24);
+    drawEllipse(gl, centerX, waistY, unit * 0.62, unit * 0.18, mid, 18);
+    drawEllipse(gl, centerX, abdomenY, unit * 0.78, unit * 0.46, white, 26);
+    drawEllipse(gl, centerX, chestY, unit * 0.98, unit * 0.78, white, 28);
+    drawEllipse(gl, centerX, shoulderY - unit * 0.04, unit * 0.72, unit * 0.22, mid, 18);
+
+    // Shoulder caps.
+    drawEllipse(gl, centerX - unit * 0.80, shoulderY, unit * 0.30, unit * 0.24, white, 20);
+    drawEllipse(gl, centerX + unit * 0.80, shoulderY, unit * 0.30, unit * 0.24, white, 20);
+
+    // Arms shortened for more natural anatomy.
+    const leftShoulderX = centerX - unit * 0.88;
+    const rightShoulderX = centerX + unit * 0.88;
+    const elbowY = pelvisY - unit * 0.78;
+    const wristY = groundY - unit * 1.24;
+    const leftElbowX = centerX - unit * 0.98;
+    const rightElbowX = centerX + unit * 0.98;
+    const leftWristX = centerX - unit * 0.94;
+    const rightWristX = centerX + unit * 0.94;
+
+    drawCapsule(gl, leftShoulderX, shoulderY + unit * 0.04, leftElbowX, elbowY, unit * 0.15, white);
+    drawCapsule(gl, rightShoulderX, shoulderY + unit * 0.04, rightElbowX, elbowY, unit * 0.15, white);
+    drawCapsule(gl, leftElbowX, elbowY, leftWristX, wristY, unit * 0.12, white);
+    drawCapsule(gl, rightElbowX, elbowY, rightWristX, wristY, unit * 0.12, white);
+
+    drawEllipse(gl, leftWristX, wristY + unit * 0.10, unit * 0.11, unit * 0.15, mid, 16);
+    drawEllipse(gl, rightWristX, wristY + unit * 0.10, unit * 0.11, unit * 0.15, mid, 16);
+
+    // Neck and head.
+    drawEllipse(gl, centerX, neckY, unit * 0.18, unit * 0.14, mid, 16);
+    drawEllipse(gl, centerX, headY, unit * 0.42, unit * 0.58, white, 28);
+    drawEllipse(gl, centerX + unit * 0.16, headY, unit * 0.10, unit * 0.40, dark, 16);
+    drawEllipse(gl, centerX + unit * 0.18, chestY + unit * 0.06, unit * 0.16, unit * 0.72, softShade, 16);
+
+    drawLineLoop(gl, [
+      centerX - unit * 0.28, headY - unit * 0.46,
+      centerX + unit * 0.10, headY - unit * 0.54,
+      centerX + unit * 0.40, headY - unit * 0.06,
+      centerX + unit * 0.16, headY + unit * 0.46,
+      centerX - unit * 0.22, headY + unit * 0.44,
+      centerX - unit * 0.42, headY - unit * 0.06
+    ], outline);
   }
 
   function getVisibleBounds(canvasWidth, canvasHeight) {
@@ -396,11 +580,16 @@ window.Game = window.Game || {};
         if (isSelected) {
           drawSelectionMarker(gl, pos, metrics.hexWidth, metrics.hexHeight);
         }
-
-        if (world.player && world.player.row === row && world.player.col === col) {
-          drawPlayer(gl, pos, metrics.hexWidth, metrics.hexHeight);
-        }
       }
+    }
+
+    if (world.previewPath && world.previewPath.length > 1) {
+      drawPreviewRoute(gl, world.previewPath, metrics);
+    }
+
+    if (world.player) {
+      const playerPos = getPlayerWorldPosition();
+      drawPlayer(gl, { x: playerPos.x + State.camera.x, y: playerPos.y + State.camera.y }, metrics.hexWidth, metrics.hexHeight);
     }
 
     render.needsWorldRedraw = false;
@@ -429,6 +618,9 @@ window.Game = window.Game || {};
     terrainColor,
     markDirty,
     getHexMetrics,
-    pointInHex
+    pointInHex,
+    getPlayerWorldPosition,
+    centerCameraOnWorld,
+    updateCameraFollow
   };
 })();

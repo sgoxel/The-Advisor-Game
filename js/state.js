@@ -29,11 +29,22 @@ window.Game = window.Game || {};
       hover: null,
       player: {
         row: Math.floor(Config.DEFAULT_ROWS / 2),
-        col: Math.floor(Config.DEFAULT_COLS / 2)
+        col: Math.floor(Config.DEFAULT_COLS / 2),
+        moving: false,
+        startRow: Math.floor(Config.DEFAULT_ROWS / 2),
+        startCol: Math.floor(Config.DEFAULT_COLS / 2),
+        targetRow: Math.floor(Config.DEFAULT_ROWS / 2),
+        targetCol: Math.floor(Config.DEFAULT_COLS / 2),
+        moveStartTime: 0,
+        moveDuration: 180,
+        progress: 1,
+        direction: 's',
+        pathQueue: []
       },
       seed: Config.DEFAULT_SEED,
       terrain: [],
-      params: null
+      params: null,
+      previewPath: []
     },
 
     camera: {
@@ -47,11 +58,15 @@ window.Game = window.Game || {};
       zoom: 1,
       minZoom: 0.6,
       maxZoom: 2.2,
-      zoomStep: 0.1
+      zoomStep: 0.1,
+      followPlayer: true
     },
 
     input: {
-      keys: new Set()
+      keys: new Set(),
+      lastTileClick: null,
+      lastTileClickTime: 0,
+      doubleClickThresholdMs: 500
     },
 
     dom: {

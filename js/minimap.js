@@ -119,7 +119,9 @@ window.Game = window.Game || {};
 
     drawViewportFrame(layout);
 
-    const playerPos = Renderer.gridToScreen(world.player.row, world.player.col, layout.originX, layout.originY, layout.miniHexWidth);
+    const playerRow = world.player.moving ? (world.player.progress < 0.5 ? world.player.startRow : world.player.targetRow) : world.player.row;
+    const playerCol = world.player.moving ? (world.player.progress < 0.5 ? world.player.startCol : world.player.targetCol) : world.player.col;
+    const playerPos = Renderer.gridToScreen(playerRow, playerCol, layout.originX, layout.originY, layout.miniHexWidth);
     dom.miniCtx.beginPath();
     dom.miniCtx.arc(playerPos.x, playerPos.y, Math.max(2, layout.miniHexWidth * 0.12), 0, Math.PI * 2);
     dom.miniCtx.fillStyle = "#f4f7fb";
@@ -142,8 +144,11 @@ window.Game = window.Game || {};
 
       if (!picked) return;
 
-      Renderer.centerCameraOnTile(picked.row, picked.col);
       State.world.selected = picked;
+      State.world.previewPath = (window.Game.Input && window.Game.Input.buildPathToTarget)
+        ? window.Game.Input.buildPathToTarget(picked.row, picked.col)
+        : [];
+      Renderer.centerCameraOnTile(picked.row, picked.col);
       Renderer.markDirty();
       UI.addLog(`Minimap tıklandı: satır=${picked.row}, sütun=${picked.col}. Kamera ilgili noktaya ortalandı.`);
     });

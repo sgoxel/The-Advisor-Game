@@ -21,7 +21,17 @@ window.Game = window.Game || {};
     world.hover = null;
     world.player = {
       row: Math.floor(rows / 2),
-      col: Math.floor(cols / 2)
+      col: Math.floor(cols / 2),
+      moving: false,
+      startRow: Math.floor(rows / 2),
+      startCol: Math.floor(cols / 2),
+      targetRow: Math.floor(rows / 2),
+      targetCol: Math.floor(cols / 2),
+      moveStartTime: 0,
+      moveDuration: 180,
+      progress: 1,
+      direction: 's',
+      pathQueue: []
     };
 
     const generated = Terrain.generateWorld(seed, cols, rows);
@@ -73,8 +83,10 @@ window.Game = window.Game || {};
     Renderer.markDirty();
   }
 
-  function loop() {
+  function loop(timestamp) {
     Input.updateCameraFromKeyboard();
+    Input.updatePlayerMovement(timestamp || performance.now());
+    Renderer.updateCameraFollow();
     Renderer.renderWorld();
     Minimap.renderMinimap();
     requestAnimationFrame(loop);
