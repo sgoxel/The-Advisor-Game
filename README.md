@@ -2,7 +2,7 @@ The Advisor Game
 
 HTML5 + WebGL Based Game Demo
 
-🎮 Game Link (Under Development: [Play Now](https://sgoxel.github.io/The-Advisor-Game/)
+🎮 Game Link (Under Development): [Play Now](https://sgoxel.github.io/The-Advisor-Game/)
 
 🌍 Theme
 
