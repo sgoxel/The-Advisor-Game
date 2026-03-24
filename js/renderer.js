@@ -1,6 +1,6 @@
 /*
   FILE PURPOSE:
-  Render the main isometric game world with WebGL.
+  Render the main hex-based game world with WebGL.
 
   DEPENDENCIES:
   - state.js
@@ -15,18 +15,18 @@
   - Game.Renderer.renderWorld
   - Game.Renderer.drawTile   (2D helper for minimap only)
   - Game.Renderer.terrainColor
+  - Game.Renderer.markDirty
 
   IMPORTANT RULES:
   - Main game area uses WebGL.
-  - Minimap still uses Canvas 2D and may call drawTile().
-  - Picking stays in CPU-side JS logic.
+  - Minimap uses Canvas 2D.
+  - Grid topology is hexagonal (pointy-top, odd-r offset).
 */
 
 window.Game = window.Game || {};
 
 (function () {
   const State = window.Game.State;
-  const Utils = window.Game.Utils;
 
   const VERTEX_SHADER_SOURCE = `
     attribute vec2 a_position;
@@ -48,6 +48,15 @@ window.Game = window.Game || {};
       gl_FragColor = u_color;
     }
   `;
+
+  function markDirty(worldDirty, minimapDirty) {
+    if (worldDirty !== false) {
+      State.render.needsWorldRedraw = true;
+    }
+    if (minimapDirty !== false) {
+      State.render.needsMinimapRedraw = true;
+    }
+  }
 
   function createShader(gl, type, source) {
     const shader = gl.createShader(type);
@@ -105,21 +114,62 @@ window.Game = window.Game || {};
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   }
 
+  function getHexMetrics(scaleWidth) {
+    const world = State.world;
+    const zoom = State.camera.zoom || 1;
+    const hexWidth = scaleWidth || world.tileWidth * zoom;
+    const size = hexWidth / Math.sqrt(3);
+    const hexHeight = size * 2;
+    const rowStep = size * 1.5;
+
+    return {
+      size,
+      hexWidth,
+      hexHeight,
+      rowStep
+    };
+  }
+
+  function gridToScreen(row, col, offsetX, offsetY, hexWidth) {
+    const camera = State.camera;
+    const metrics = getHexMetrics(hexWidth);
+    const xBase = offsetX !== undefined ? offsetX : camera.x;
+    const yBase = offsetY !== undefined ? offsetY : camera.y;
+    const rowOffset = (row & 1) ? metrics.hexWidth / 2 : 0;
+
+    return {
+      x: xBase + metrics.hexWidth / 2 + rowOffset + col * metrics.hexWidth,
+      y: yBase + metrics.size + row * metrics.rowStep
+    };
+  }
+
+  function pointInHex(px, py, cx, cy, hexWidth) {
+    const metrics = getHexMetrics(hexWidth);
+    const vertices = getHexOutlineVertices(cx, cy, metrics.hexWidth, metrics.hexHeight);
+
+    let inside = false;
+    for (let i = 0, j = vertices.length - 2; i < vertices.length; i += 2) {
+      const xi = vertices[i];
+      const yi = vertices[i + 1];
+      const xj = vertices[j];
+      const yj = vertices[j + 1];
+      const intersect = ((yi > py) !== (yj > py)) &&
+        (px < (xj - xi) * (py - yi) / ((yj - yi) || 0.000001) + xi);
+      if (intersect) inside = !inside;
+      j = i;
+    }
+    return inside;
+  }
+
   function centerCameraOnTile(row, col) {
     const dom = State.dom;
-    const world = State.world;
-    const camera = State.camera;
-
     if (!dom.canvas) return;
 
-    const zoom = camera.zoom || 1;
-    const tileWidth = world.tileWidth * zoom;
-    const tileHeight = world.tileHeight * zoom;
-    const canvasWidth = dom.canvas.clientWidth;
-    const canvasHeight = dom.canvas.clientHeight;
-
-    camera.x = canvasWidth / 2 - (col - row) * tileWidth / 2;
-    camera.y = canvasHeight / 2 - (col + row) * tileHeight / 2 - tileHeight / 2;
+    const metrics = getHexMetrics();
+    const tile = gridToScreen(row, col, 0, 0);
+    State.camera.x = dom.canvas.clientWidth / 2 - tile.x;
+    State.camera.y = dom.canvas.clientHeight / 2 - tile.y;
+    markDirty();
   }
 
   function centerCamera() {
@@ -132,7 +182,6 @@ window.Game = window.Game || {};
     const dom = State.dom;
     const gl = dom.gl;
     const dpr = window.devicePixelRatio || 1;
-
     const displayWidth = Math.round(dom.canvas.clientWidth * dpr);
     const displayHeight = Math.round(dom.canvas.clientHeight * dpr);
 
@@ -144,43 +193,27 @@ window.Game = window.Game || {};
     initializeWebGLResources();
     gl.viewport(0, 0, dom.canvas.width, dom.canvas.height);
     centerCamera();
-  }
-
-  function gridToScreen(row, col, offsetX, offsetY, tileWidth, tileHeight) {
-    const world = State.world;
-    const camera = State.camera;
-
-    const xBase = offsetX !== undefined ? offsetX : camera.x;
-    const yBase = offsetY !== undefined ? offsetY : camera.y;
-    const zoom = camera.zoom || 1;
-    const tw = tileWidth || world.tileWidth * zoom;
-    const th = tileHeight || world.tileHeight * zoom;
-
-    return {
-      x: (col - row) * tw / 2 + xBase,
-      y: (col + row) * th / 2 + yBase
-    };
-  }
-
-  function pointInDiamond(px, py, cx, cy, tileWidth, tileHeight) {
-    const world = State.world;
-    const camera = State.camera;
-    const zoom = camera.zoom || 1;
-    const tw = tileWidth || world.tileWidth * zoom;
-    const th = tileHeight || world.tileHeight * zoom;
-
-    const dx = Math.abs(px - cx) / (tw / 2);
-    const dy = Math.abs(py - (cy + th / 2)) / (th / 2);
-    return dx + dy <= 1;
+    markDirty();
   }
 
   function pickTile(x, y) {
     const world = State.world;
+    const metrics = getHexMetrics();
+    const localY = y - State.camera.y - metrics.size;
+    const approxRow = Math.round(localY / metrics.rowStep);
+    const rowStart = Math.max(0, approxRow - 2);
+    const rowEnd = Math.min(world.rows - 1, approxRow + 2);
 
-    for (let row = world.rows - 1; row >= 0; row--) {
-      for (let col = world.cols - 1; col >= 0; col--) {
-        const pos = gridToScreen(row, col);
-        if (pointInDiamond(x, y, pos.x, pos.y)) {
+    for (let row = rowStart; row <= rowEnd; row++) {
+      const rowOffset = (row & 1) ? metrics.hexWidth / 2 : 0;
+      const localX = x - State.camera.x - metrics.hexWidth / 2 - rowOffset;
+      const approxCol = Math.round(localX / metrics.hexWidth);
+      const colStart = Math.max(0, approxCol - 2);
+      const colEnd = Math.min(world.cols - 1, approxCol + 2);
+
+      for (let col = colStart; col <= colEnd; col++) {
+        const center = gridToScreen(row, col);
+        if (pointInHex(x, y, center.x, center.y)) {
           return { row, col };
         }
       }
@@ -236,55 +269,56 @@ window.Game = window.Game || {};
     gl.drawArrays(gl.LINE_LOOP, 0, vertices.length / 2);
   }
 
-  function getDiamondVertices(pos, tileWidth, tileHeight) {
-    const top = [pos.x, pos.y];
-    const right = [pos.x + tileWidth / 2, pos.y + tileHeight / 2];
-    const bottom = [pos.x, pos.y + tileHeight];
-    const left = [pos.x - tileWidth / 2, pos.y + tileHeight / 2];
-
-    return {
-      triangles: [
-        top[0], top[1], right[0], right[1], bottom[0], bottom[1],
-        top[0], top[1], bottom[0], bottom[1], left[0], left[1]
-      ],
-      outline: [
-        top[0], top[1], right[0], right[1], bottom[0], bottom[1], left[0], left[1]
-      ]
-    };
+  function getHexOutlineVertices(cx, cy, hexWidth, hexHeight) {
+    const radiusY = hexHeight / 2;
+    const radiusX = hexWidth / 2;
+    return [
+      cx, cy - radiusY,
+      cx + radiusX, cy - radiusY / 2,
+      cx + radiusX, cy + radiusY / 2,
+      cx, cy + radiusY,
+      cx - radiusX, cy + radiusY / 2,
+      cx - radiusX, cy - radiusY / 2
+    ];
   }
 
-  function drawTileWebGL(gl, pos, color, tileWidth, tileHeight, highlight) {
-    const vertices = getDiamondVertices(pos, tileWidth, tileHeight);
+  function getHexTriangleVertices(cx, cy, hexWidth, hexHeight) {
+    const outline = getHexOutlineVertices(cx, cy, hexWidth, hexHeight);
+    const triangles = [];
+
+    for (let i = 0; i < outline.length; i += 2) {
+      const ni = (i + 2) % outline.length;
+      triangles.push(
+        cx, cy,
+        outline[i], outline[i + 1],
+        outline[ni], outline[ni + 1]
+      );
+    }
+
+    return { triangles, outline };
+  }
+
+  function drawTileWebGL(gl, pos, color, hexWidth, hexHeight, highlight) {
+    const vertices = getHexTriangleVertices(pos.x, pos.y, hexWidth, hexHeight);
     drawTriangles(gl, vertices.triangles, hexToNormalizedRgba(color, 1));
 
     const outlineColor = highlight
       ? [250 / 255, 227 / 255, 140 / 255, 1]
-      : [17 / 255, 21 / 255, 28 / 255, 0.55];
+      : [17 / 255, 21 / 255, 28 / 255, 0.35];
 
     drawLineLoop(gl, vertices.outline, outlineColor);
   }
 
-  function drawSelectionMarker(gl, pos, tileWidth, tileHeight) {
-    const markerWidth = tileWidth * 0.36;
-    const markerHeight = tileHeight * 0.56;
-    const centerX = pos.x;
-    const centerY = pos.y + tileHeight * 0.5;
-
-    const vertices = [
-      centerX, centerY - markerHeight / 2,
-      centerX + markerWidth / 2, centerY,
-      centerX, centerY + markerHeight / 2,
-      centerX - markerWidth / 2, centerY
-    ];
-
+  function drawSelectionMarker(gl, pos, hexWidth, hexHeight) {
+    const vertices = getHexOutlineVertices(pos.x, pos.y, hexWidth * 0.62, hexHeight * 0.62);
     drawLineLoop(gl, vertices, [0.97, 0.87, 0.48, 1]);
   }
 
-  function drawPlayer(gl, pos, tileWidth, tileHeight) {
-    const bodyWidth = tileWidth * 0.18;
-    const bodyHeight = tileHeight * 0.62;
+  function drawPlayer(gl, pos, hexWidth, hexHeight) {
+    const bodyWidth = hexWidth * 0.18;
+    const bodyHeight = hexHeight * 0.36;
     const centerX = pos.x;
-    const centerY = pos.y + tileHeight * 0.33;
+    const centerY = pos.y + hexHeight * 0.02;
 
     const body = [
       centerX - bodyWidth / 2, centerY - bodyHeight / 2,
@@ -301,9 +335,9 @@ window.Game = window.Game || {};
     drawTriangles(gl, bodyTriangles, [0.90, 0.26, 0.24, 1]);
     drawLineLoop(gl, body, [0.18, 0.08, 0.08, 1]);
 
-    const headRadius = Math.max(5, tileHeight * 0.11);
+    const headRadius = Math.max(5, hexHeight * 0.10);
     const headCenterX = centerX;
-    const headCenterY = centerY - bodyHeight / 2 - headRadius * 0.2;
+    const headCenterY = centerY - bodyHeight / 2 - headRadius * 0.25;
     const headVertices = [];
     const segments = 18;
 
@@ -320,48 +354,65 @@ window.Game = window.Game || {};
     drawTriangles(gl, headVertices, [0.96, 0.83, 0.66, 1]);
   }
 
-  function renderWorld() {
-    const dom = State.dom;
+  function getVisibleBounds(canvasWidth, canvasHeight) {
     const world = State.world;
     const camera = State.camera;
+    const metrics = getHexMetrics();
+    const rowMin = Math.max(0, Math.floor((-camera.y - metrics.hexHeight) / metrics.rowStep) - 2);
+    const rowMax = Math.min(world.rows - 1, Math.ceil((canvasHeight - camera.y + metrics.hexHeight) / metrics.rowStep) + 2);
+
+    return { rowMin, rowMax };
+  }
+
+  function renderWorld(force) {
+    const dom = State.dom;
+    const world = State.world;
     const render = State.render;
     const gl = dom.gl;
-    const zoom = camera.zoom || 1;
-    const tileWidth = world.tileWidth * zoom;
-    const tileHeight = world.tileHeight * zoom;
+    const metrics = getHexMetrics();
 
     if (!gl || !render.program || !world.terrain.length) return;
+    if (!force && !render.needsWorldRedraw) return;
 
     gl.clearColor(render.clearColor[0], render.clearColor[1], render.clearColor[2], render.clearColor[3]);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(render.program);
     gl.uniform2f(render.resolutionLocation, dom.canvas.clientWidth, dom.canvas.clientHeight);
 
-    for (let row = 0; row < world.rows; row++) {
-      for (let col = 0; col < world.cols; col++) {
+    const bounds = getVisibleBounds(dom.canvas.clientWidth, dom.canvas.clientHeight);
+
+    for (let row = bounds.rowMin; row <= bounds.rowMax; row++) {
+      const rowOffset = (row & 1) ? metrics.hexWidth / 2 : 0;
+      const colMin = Math.max(0, Math.floor((-State.camera.x - rowOffset - metrics.hexWidth) / metrics.hexWidth) - 2);
+      const colMax = Math.min(world.cols - 1, Math.ceil((dom.canvas.clientWidth - State.camera.x - rowOffset + metrics.hexWidth) / metrics.hexWidth) + 2);
+
+      for (let col = colMin; col <= colMax; col++) {
         const tile = world.terrain[row][col];
         const pos = gridToScreen(row, col);
         const isHovered = world.hover && world.hover.row === row && world.hover.col === col;
         const isSelected = world.selected && world.selected.row === row && world.selected.col === col;
-        drawTileWebGL(gl, pos, terrainColor(tile), tileWidth, tileHeight, isHovered || isSelected);
+        drawTileWebGL(gl, pos, terrainColor(tile), metrics.hexWidth, metrics.hexHeight, isHovered || isSelected);
 
         if (isSelected) {
-          drawSelectionMarker(gl, pos, tileWidth, tileHeight);
+          drawSelectionMarker(gl, pos, metrics.hexWidth, metrics.hexHeight);
         }
 
         if (world.player && world.player.row === row && world.player.col === col) {
-          drawPlayer(gl, pos, tileWidth, tileHeight);
+          drawPlayer(gl, pos, metrics.hexWidth, metrics.hexHeight);
         }
       }
     }
+
+    render.needsWorldRedraw = false;
   }
 
-  function drawTile(ctx, x, y, tileWidth, tileHeight, color) {
+  function drawTile(ctx, x, y, hexWidth, hexHeight, color) {
+    const vertices = getHexOutlineVertices(x, y, hexWidth, hexHeight);
     ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + tileWidth / 2, y + tileHeight / 2);
-    ctx.lineTo(x, y + tileHeight);
-    ctx.lineTo(x - tileWidth / 2, y + tileHeight / 2);
+    ctx.moveTo(vertices[0], vertices[1]);
+    for (let i = 2; i < vertices.length; i += 2) {
+      ctx.lineTo(vertices[i], vertices[i + 1]);
+    }
     ctx.closePath();
     ctx.fillStyle = color;
     ctx.fill();
@@ -375,6 +426,9 @@ window.Game = window.Game || {};
     pickTile,
     renderWorld,
     drawTile,
-    terrainColor
+    terrainColor,
+    markDirty,
+    getHexMetrics,
+    pointInHex
   };
 })();

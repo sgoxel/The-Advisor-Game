@@ -45,6 +45,7 @@ window.Game = window.Game || {};
     UI.syncSettingsInputs();
     UI.updateParamUI();
     Renderer.centerCamera();
+    Renderer.markDirty();
     UI.addLog(`Dünya yeniden oluşturuldu. SEED=${seed}, boyut=${cols}x${rows}`);
   }
 
@@ -67,6 +68,7 @@ window.Game = window.Game || {};
   function resizeAll() {
     Renderer.resizeCanvas();
     Minimap.resizeMinimap();
+    Renderer.markDirty();
   }
 
   function loop() {
@@ -115,12 +117,18 @@ window.Game = window.Game || {};
   }
 
   function registerGlobalErrorHandlers() {
+    const ignoreFileOriginWarning = (message) => {
+      return typeof message === "string" && message.indexOf("Unsafe attempt to load URL file:///") !== -1;
+    };
+
     window.onerror = function (message, source, lineno, colno, errorObj) {
+      if (ignoreFileOriginWarning(message)) return true;
       UI.addLog("HATA: Çalışma zamanı hatası yakalandı.", buildErrorDetails(message, source, lineno, colno, errorObj));
       return false;
     };
 
     window.addEventListener("error", (event) => {
+      if (ignoreFileOriginWarning(event.message)) return;
       if (event.error || event.message) {
         UI.addLog(
           "HATA: Global error event yakalandı.",
@@ -158,6 +166,9 @@ window.Game = window.Game || {};
     registerGlobalErrorHandlers();
 
     resizeAll();
+    if (window.location.protocol === "file:") {
+      UI.addLog("BİLGİ: Uygulama file:// üzerinden açıldı. Chrome güvenlik politikası nedeniyle DevTools'ta file origin uyarısı görünebilir. En temiz çalışma için local server kullanın.");
+    }
     UI.addLog("Uygulama başlatıldı.");
     rebuildWorld(Config.DEFAULT_SEED, Config.DEFAULT_COLS, Config.DEFAULT_ROWS);
 

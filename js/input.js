@@ -1,19 +1,6 @@
 /*
   FILE PURPOSE:
   Handle mouse and keyboard input for camera, tile picking, and zoom.
-
-  DEPENDENCIES:
-  - state.js
-  - renderer.js
-  - ui.js
-
-  PUBLIC API:
-  - Game.Input.bindInputEvents
-  - Game.Input.updateCameraFromKeyboard
-
-  IMPORTANT RULES:
-  - Keep raw input handling here.
-  - Do not generate world here.
 */
 
 window.Game = window.Game || {};
@@ -55,9 +42,14 @@ window.Game = window.Game || {};
         camera.y += dy;
         camera.lastX = pos.x;
         camera.lastY = pos.y;
+        Renderer.markDirty();
       }
 
-      world.hover = Renderer.pickTile(pos.x, pos.y);
+      const picked = Renderer.pickTile(pos.x, pos.y);
+      if ((picked && (!world.hover || world.hover.row !== picked.row || world.hover.col !== picked.col)) || (!picked && world.hover)) {
+        world.hover = picked;
+        Renderer.markDirty(true, false);
+      }
     });
 
     dom.canvas.addEventListener("mousedown", (event) => {
@@ -68,7 +60,6 @@ window.Game = window.Game || {};
       camera.movedWhileDragging = false;
       camera.lastX = pos.x;
       camera.lastY = pos.y;
-
       dom.canvas.classList.add("dragging");
     });
 
@@ -85,6 +76,7 @@ window.Game = window.Game || {};
       if (newZoom !== oldZoom) {
         camera.zoom = newZoom;
         Renderer.centerCamera();
+        Renderer.markDirty();
         UI.addLog(`Zoom değiştirildi: ${newZoom.toFixed(2)}x`);
       }
     }, { passive: false });
@@ -97,7 +89,10 @@ window.Game = window.Game || {};
     dom.canvas.addEventListener("mouseleave", () => {
       camera.dragActive = false;
       dom.canvas.classList.remove("dragging");
-      world.hover = null;
+      if (world.hover) {
+        world.hover = null;
+        Renderer.markDirty(true, false);
+      }
     });
 
     dom.canvas.addEventListener("click", (event) => {
@@ -111,6 +106,7 @@ window.Game = window.Game || {};
 
       if (picked) {
         world.selected = picked;
+        Renderer.markDirty(true, true);
         UI.addLog(`Tile seçildi: satır=${picked.row}, sütun=${picked.col}`);
       }
     });
@@ -141,11 +137,28 @@ window.Game = window.Game || {};
   function updateCameraFromKeyboard() {
     const input = State.input;
     const camera = State.camera;
+    let moved = false;
 
-    if (input.keys.has("arrowup") || input.keys.has("w")) camera.y += camera.moveSpeed;
-    if (input.keys.has("arrowdown") || input.keys.has("s")) camera.y -= camera.moveSpeed;
-    if (input.keys.has("arrowleft") || input.keys.has("a")) camera.x += camera.moveSpeed;
-    if (input.keys.has("arrowright") || input.keys.has("d")) camera.x -= camera.moveSpeed;
+    if (input.keys.has("arrowup") || input.keys.has("w")) {
+      camera.y += camera.moveSpeed;
+      moved = true;
+    }
+    if (input.keys.has("arrowdown") || input.keys.has("s")) {
+      camera.y -= camera.moveSpeed;
+      moved = true;
+    }
+    if (input.keys.has("arrowleft") || input.keys.has("a")) {
+      camera.x += camera.moveSpeed;
+      moved = true;
+    }
+    if (input.keys.has("arrowright") || input.keys.has("d")) {
+      camera.x -= camera.moveSpeed;
+      moved = true;
+    }
+
+    if (moved) {
+      Renderer.markDirty();
+    }
   }
 
   window.Game.Input = {

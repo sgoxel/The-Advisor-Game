@@ -95,7 +95,9 @@ window.Game = window.Game || {};
       colorLocation: null,
       positionLocation: null,
       resolutionLocation: null,
-      clearColor: [18 / 255, 25 / 255, 32 / 255, 1]
+      clearColor: [18 / 255, 25 / 255, 32 / 255, 1],
+      needsWorldRedraw: true,
+      needsMinimapRedraw: true
     },
 
     log: {
