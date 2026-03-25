@@ -170,6 +170,16 @@ window.Game = window.Game || {};
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   }
 
+  function getCanvasTouchPosition(event) {
+    const canvas = State.dom.canvas;
+    const rect = canvas.getBoundingClientRect();
+    const touch = event.touches && event.touches[0]
+      ? event.touches[0]
+      : (event.changedTouches && event.changedTouches[0] ? event.changedTouches[0] : null);
+    if (!touch) return null;
+    return { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+  }
+
   function startMoveAlongPath(path) {
     const player = State.world.player;
     if (!path || path.length < 2) return false;
@@ -303,6 +313,79 @@ window.Game = window.Game || {};
         input.lastTileClickTime = now;
       }
     });
+
+
+    dom.canvas.addEventListener('touchstart', (event) => {
+      if (!event.touches || event.touches.length !== 1) return;
+      const pos = getCanvasTouchPosition(event);
+      if (!pos) return;
+      event.preventDefault();
+      input.mouseX = pos.x;
+      input.mouseY = pos.y;
+      camera.dragActive = true;
+      camera.movedWhileDragging = false;
+      camera.lastX = pos.x;
+      camera.lastY = pos.y;
+      dom.canvas.classList.add('dragging');
+    }, { passive: false });
+
+    dom.canvas.addEventListener('touchmove', (event) => {
+      if (!camera.dragActive) return;
+      const pos = getCanvasTouchPosition(event);
+      if (!pos) return;
+      event.preventDefault();
+      input.mouseX = pos.x;
+      input.mouseY = pos.y;
+      const dx = pos.x - camera.lastX;
+      const dy = pos.y - camera.lastY;
+      if (Math.abs(dx) > 1 || Math.abs(dy) > 1) camera.movedWhileDragging = true;
+      camera.x += dx;
+      camera.y += dy;
+      camera.lastX = pos.x;
+      camera.lastY = pos.y;
+      Renderer.markDirty();
+    }, { passive: false });
+
+    dom.canvas.addEventListener('touchend', (event) => {
+      const pos = getCanvasTouchPosition(event);
+      camera.dragActive = false;
+      dom.canvas.classList.remove('dragging');
+      if (!pos) return;
+      input.mouseX = pos.x;
+      input.mouseY = pos.y;
+      if (camera.movedWhileDragging) {
+        camera.movedWhileDragging = false;
+        return;
+      }
+
+      const picked = Renderer.pickTile(pos.x, pos.y);
+      if (!picked) return;
+
+      const now = performance.now();
+      const sameTile = input.lastTileClick && input.lastTileClick.row === picked.row && input.lastTileClick.col === picked.col;
+      const withinThreshold = sameTile && (now - input.lastTileClickTime) <= input.doubleClickThresholdMs;
+
+      world.selected = picked;
+      world.previewPath = buildPathToTarget(picked.row, picked.col);
+      Renderer.markDirty(true, true);
+
+      if (withinThreshold && world.previewPath.length > 1) {
+        startMoveAlongPath(world.previewPath);
+        UI.addLog(`Çift dokunuş ile hareket başlatıldı: satır=${picked.row}, sütun=${picked.col}`);
+        input.lastTileClick = null;
+        input.lastTileClickTime = 0;
+      } else {
+        UI.addLog(`Tile seçildi: satır=${picked.row}, sütun=${picked.col}`);
+        input.lastTileClick = picked;
+        input.lastTileClickTime = now;
+      }
+    }, { passive: false });
+
+    dom.canvas.addEventListener('touchcancel', () => {
+      camera.dragActive = false;
+      camera.movedWhileDragging = false;
+      dom.canvas.classList.remove('dragging');
+    }, { passive: true });
 
     window.addEventListener('keydown', (event) => {
       if (!dom.settingsModal.classList.contains('hidden')) {

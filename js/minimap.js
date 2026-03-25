@@ -19,7 +19,10 @@ window.Game = window.Game || {};
     const dom = State.dom;
     const width = dom.minimap.clientWidth;
     const height = dom.minimap.clientHeight;
-    const padding = Math.max(14, Math.min(22, Math.floor(Math.min(width, height) * 0.09)));
+    const isPortraitMobile = window.innerWidth <= 960 && window.innerHeight > window.innerWidth;
+    const padding = isPortraitMobile
+      ? Math.max(3, Math.min(8, Math.floor(Math.min(width, height) * 0.03)))
+      : Math.max(10, Math.min(18, Math.floor(Math.min(width, height) * 0.06)));
 
     const maxTileFromWidth = Math.max(3, ((width - padding * 2) * 2) / Math.max(2, world.cols + world.rows + 1));
 
@@ -27,7 +30,8 @@ window.Game = window.Game || {};
     const tileRatio = probeMetrics.tileHeight / probeMetrics.tileWidth;
     const maxTileFromHeight = Math.max(3, ((height - padding * 2) * 2) / Math.max(2, (world.cols + world.rows + 1) * tileRatio));
 
-    const miniTileWidth = Math.max(3, Math.min(11, Math.min(maxTileFromWidth, maxTileFromHeight) * 0.80));
+    const fillFactor = isPortraitMobile ? 0.98 : 0.88;
+    const miniTileWidth = Math.max(3, Math.min(12, Math.min(maxTileFromWidth, maxTileFromHeight) * fillFactor));
     const metrics = Renderer.getHexMetrics(miniTileWidth);
 
     const cornerCenters = [

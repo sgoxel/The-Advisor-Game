@@ -265,6 +265,7 @@ textarea {
     radial-gradient(circle at center, rgba(56, 95, 65, 0.15), transparent 40%),
     linear-gradient(180deg, #17202a 0%, #121920 100%);
   cursor: grab;
+  touch-action: none;
 }
 
 #gameCanvas.dragging {
@@ -993,6 +994,7 @@ textarea {
 
   .minimap-panel canvas {
     min-height: 250px;
+    height: 100%;
   }
 
   .modal-overlay {

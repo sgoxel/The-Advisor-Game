@@ -353,6 +353,27 @@ window.Game = window.Game || {};
       addLog("Load action selected. Function not implemented yet.");
       closeMainMenu();
     });
+
+    const characterPanel = document.querySelector('.character-panel');
+    const characterHeader = document.querySelector('.character-panel .panel-header');
+    const recenterCharacter = (event) => {
+      if (event) event.preventDefault();
+      if (window.Game.Renderer) {
+        window.Game.Renderer.centerCamera();
+        window.Game.Renderer.markDirty();
+      }
+      addLog('Character panel selected. Camera centered on player.');
+    };
+    if (characterPanel) {
+      characterPanel.style.cursor = 'pointer';
+      characterPanel.addEventListener('click', recenterCharacter);
+    }
+    if (characterHeader) {
+      characterHeader.addEventListener('click', (event) => {
+        event.stopPropagation();
+        recenterCharacter(event);
+      });
+    }
     document.addEventListener("click", (event) => {
       if (!dom.mainMenuDropdown || dom.mainMenuDropdown.classList.contains("hidden")) return;
       if (dom.mainMenuDropdown.contains(event.target) || dom.mainMenuBtn.contains(event.target)) return;
