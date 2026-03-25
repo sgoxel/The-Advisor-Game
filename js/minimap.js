@@ -19,10 +19,43 @@ window.Game = window.Game || {};
     const dom = State.dom;
     const width = dom.minimap.clientWidth;
     const height = dom.minimap.clientHeight;
-    const padding = 12;
-    const miniTileWidth = Math.max(4, Math.min(14, Math.min((width - padding * 2) / Math.max(4, world.cols + world.rows) * 2, (height - padding * 2) / Math.max(4, world.cols + world.rows) * 4)));
+    const padding = Math.max(14, Math.min(22, Math.floor(Math.min(width, height) * 0.09)));
+
+    const maxTileFromWidth = Math.max(3, ((width - padding * 2) * 2) / Math.max(2, world.cols + world.rows + 1));
+
+    const probeMetrics = Renderer.getHexMetrics(10);
+    const tileRatio = probeMetrics.tileHeight / probeMetrics.tileWidth;
+    const maxTileFromHeight = Math.max(3, ((height - padding * 2) * 2) / Math.max(2, (world.cols + world.rows + 1) * tileRatio));
+
+    const miniTileWidth = Math.max(3, Math.min(11, Math.min(maxTileFromWidth, maxTileFromHeight) * 0.80));
     const metrics = Renderer.getHexMetrics(miniTileWidth);
-    return { width, height, miniTileWidth: metrics.tileWidth, miniTileHeight: metrics.tileHeight, originX: width / 2, originY: padding + metrics.halfH, metrics };
+
+    const cornerCenters = [
+      Renderer.gridToScreen(0, 0, 0, 0, metrics.tileWidth),
+      Renderer.gridToScreen(0, world.cols - 1, 0, 0, metrics.tileWidth),
+      Renderer.gridToScreen(world.rows - 1, 0, 0, 0, metrics.tileWidth),
+      Renderer.gridToScreen(world.rows - 1, world.cols - 1, 0, 0, metrics.tileWidth)
+    ];
+
+    const minX = Math.min(...cornerCenters.map((p) => p.x - metrics.halfW));
+    const maxX = Math.max(...cornerCenters.map((p) => p.x + metrics.halfW));
+    const minY = Math.min(...cornerCenters.map((p) => p.y - metrics.halfH));
+    const maxY = Math.max(...cornerCenters.map((p) => p.y + metrics.halfH));
+
+    const worldPixelWidth = maxX - minX;
+    const worldPixelHeight = maxY - minY;
+    const originX = ((width - worldPixelWidth) / 2) - minX;
+    const originY = ((height - worldPixelHeight) / 2) - minY;
+
+    return {
+      width,
+      height,
+      miniTileWidth: metrics.tileWidth,
+      miniTileHeight: metrics.tileHeight,
+      originX,
+      originY,
+      metrics
+    };
   }
 
   function screenToGridOnMinimap(x, y, layout) {
@@ -99,10 +132,6 @@ window.Game = window.Game || {};
       const y = event.clientY - rect.top;
       const picked = screenToGridOnMinimap(x, y, getMinimapLayout());
       if (!picked) return;
-      State.world.selected = picked;
-      State.world.previewPath = (window.Game.Input && window.Game.Input.buildPathToTarget)
-        ? window.Game.Input.buildPathToTarget(picked.row, picked.col)
-        : [];
       Renderer.centerCameraOnTile(picked.row, picked.col);
       Renderer.markDirty();
       UI.addLog(`Minimap tıklandı: satır=${picked.row}, sütun=${picked.col}. Kamera ilgili noktaya ortalandı.`);

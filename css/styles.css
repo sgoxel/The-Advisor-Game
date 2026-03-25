@@ -44,7 +44,7 @@ textarea {
   min-height: 100vh;
   min-height: 100svh;
   display: grid;
-  grid-template-rows: 74px minmax(0, 1fr) 207px;
+  grid-template-rows: 48px minmax(0, 1fr) 188px;
   background:
     radial-gradient(circle at top, rgba(60, 90, 120, 0.15), transparent 35%),
     linear-gradient(180deg, #141a23 0%, #0f141b 100%);
@@ -54,8 +54,8 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 16px;
+  gap: 6px;
+  padding: 2px 8px;
   background: linear-gradient(180deg, rgba(28, 36, 49, 0.98), rgba(20, 26, 36, 0.98));
   border-bottom: 1px solid var(--line);
   box-shadow: var(--shadow);
@@ -67,7 +67,7 @@ textarea {
 .top-stats {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -81,8 +81,8 @@ textarea {
 }
 
 .menu-btn {
-  min-width: 118px;
-  height: 42px;
+  min-width: 104px;
+  height: 32px;
   border: 1px solid rgba(255,255,255,0.08);
   background: linear-gradient(180deg, #2b3647 0%, #1b2431 100%);
   color: var(--text);
@@ -112,10 +112,10 @@ textarea {
   left: 0;
   min-width: 180px;
   max-width: min(280px, calc(100vw - 24px));
-  padding: 8px;
+  padding: 6px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   background: linear-gradient(180deg, rgba(29, 38, 52, 0.98), rgba(18, 24, 34, 0.98));
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 12px;
@@ -129,8 +129,8 @@ textarea {
 
 .dropdown-item {
   width: 100%;
-  min-height: 40px;
-  padding: 0 12px;
+  min-height: 34px;
+  padding: 0 10px;
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 9px;
   background: linear-gradient(180deg, #273345 0%, #1a2330 100%);
@@ -153,9 +153,9 @@ textarea {
 .lang-select-wrap {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   padding: 0 10px;
-  height: 42px;
+  height: 36px;
   border: 1px solid rgba(255,255,255,0.08);
   background: linear-gradient(180deg, #2b3647 0%, #1b2431 100%);
   border-radius: 10px;
@@ -165,8 +165,8 @@ textarea {
 }
 
 .lang-select {
-  min-width: 72px;
-  height: 28px;
+  min-width: 68px;
+  height: 26px;
   border: 1px solid rgba(255,255,255,0.12);
   border-radius: 8px;
   background: rgba(11, 16, 24, 0.9);
@@ -180,22 +180,22 @@ textarea {
 
 .resource-box,
 .stat-box {
-  min-height: 44px;
-  min-width: 126px;
+  min-height: 36px;
+  min-width: 120px;
   background: var(--panel-2);
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 6px 12px;
+  padding: 4px 10px;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .resource-box .label,
 .stat-box .label {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.8px;
 }
@@ -215,7 +215,7 @@ textarea {
 .resource-value,
 .stat-value {
   font-weight: 700;
-  font-size: 18px;
+  font-size: 15px;
   line-height: 1;
 }
 
@@ -229,7 +229,7 @@ textarea {
 
 .bar {
   width: 100%;
-  height: 8px;
+  height: 7px;
   background: rgba(255,255,255,0.08);
   border-radius: 999px;
   overflow: hidden;
@@ -278,7 +278,7 @@ textarea {
   right: auto;
   bottom: auto;
   max-width: min(360px, calc(100% - 32px));
-  padding: 10px 12px;
+  padding: 5px 10px;
   background: rgba(15, 19, 27, 0.72);
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -293,7 +293,7 @@ textarea {
 .top-left-scroll {
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .menu-scroll-arrow {
@@ -330,8 +330,8 @@ textarea {
 .bottom-ribbon {
   display: grid;
   grid-template-columns: 260px 1fr 300px;
-  gap: 14px;
-  padding: 12px 14px 14px;
+  gap: 4px;
+  padding: 3px 10px 3px;
   background: linear-gradient(180deg, rgba(17, 22, 30, 0.98), rgba(12, 16, 22, 0.99));
   border-top: 1px solid var(--line);
   box-shadow: var(--shadow);
@@ -341,14 +341,14 @@ textarea {
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 14px;
   box-shadow: var(--shadow);
   overflow: hidden;
   min-height: 0;
 }
 
 .panel-header {
-  padding: 10px 12px;
+  padding: 5px 10px;
   border-bottom: 1px solid var(--line);
   font-size: 12px;
   text-transform: uppercase;
@@ -365,8 +365,8 @@ textarea {
 .character-body {
   display: grid;
   grid-template-columns: 92px 1fr;
-  gap: 12px;
-  padding: 12px;
+  gap: 4px;
+  padding: 8px;
   align-items: center;
   min-height: 0;
 }
@@ -399,11 +399,11 @@ textarea {
 .character-info {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 
 .character-name {
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 700;
 }
 
@@ -420,7 +420,7 @@ textarea {
 }
 
 .dialog-text {
-  padding: 14px;
+  padding: 8px 10px 6px;
   color: var(--text);
   line-height: 1.55;
   font-size: 15px;
@@ -439,21 +439,21 @@ textarea {
 .choices {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  padding: 0 14px 14px;
+  gap: 6px;
+  padding: 0 10px 8px;
 }
 
 .choice-btn {
-  min-height: 44px;
+  min-height: 34px;
   border-radius: 12px;
   border: 1px solid rgba(255,255,255,0.08);
   background: linear-gradient(180deg, #2d3949 0%, #1d2633 100%);
   color: var(--text);
   cursor: pointer;
   text-align: left;
-  padding: 10px 12px;
+  padding: 5px 10px;
   font-size: 14px;
-  line-height: 1.35;
+  line-height: 1.25;
   transition: filter 0.15s ease, transform 0.15s ease;
 }
 
@@ -473,6 +473,48 @@ textarea {
   height: 100%;
   display: block;
   background: linear-gradient(180deg, #17202b, #10161e);
+}
+
+.minimap-panel .panel-header {
+  padding-bottom: 5px;
+}
+
+.minimap-panel {
+  align-items: stretch;
+}
+
+
+
+.minimap-panel {
+  min-width: 0;
+}
+
+#minimap {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+@media (min-width: 961px) and (orientation: landscape) {
+  .bottom-ribbon {
+    grid-template-columns: minmax(220px, 260px) minmax(0, 1fr) minmax(240px, 280px);
+    gap: 4px;
+  }
+
+  .dialog-panel {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+
+  .dialog-text {
+    padding: 8px 10px 6px;
+    font-size: 14px;
+    line-height: 1.45;
+    align-items: flex-start;
+  }
+
+  .choices {
+    gap: 4px;
+    padding: 0 12px 12px;
+  }
 }
 
 .modal-overlay {
@@ -532,7 +574,7 @@ textarea {
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: 4px;
 }
 
 .form-field {
@@ -582,7 +624,7 @@ textarea {
 .params-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: 4px;
 }
 
 .params-group {
@@ -694,7 +736,7 @@ textarea {
   .top-left {
     display: inline-flex;
     min-width: max-content;
-    gap: 8px;
+    gap: 4px;
     padding-inline: 28px;
   }
 
@@ -796,7 +838,7 @@ textarea {
   .ribbon {
     flex-direction: column;
     align-items: stretch;
-    padding: 10px 12px;
+    padding: 5px 10px;
     position: relative;
   }
 
@@ -807,7 +849,7 @@ textarea {
 
   .top-left {
     display: inline-flex;
-    gap: 8px;
+    gap: 4px;
   }
 
   .top-left > * {
@@ -817,7 +859,7 @@ textarea {
   .top-stats {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 6px;
+    gap: 4px;
   }
 
   .menu-btn,
@@ -867,7 +909,7 @@ textarea {
   .mobile-panel-tabs {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
+    gap: 4px;
     padding: 8px 12px 0;
     background: linear-gradient(180deg, rgba(17, 22, 30, 0.98), rgba(12, 16, 22, 0.99));
     border-top: 1px solid var(--line);
@@ -941,7 +983,7 @@ textarea {
   }
 
   .choices {
-    gap: 8px;
+    gap: 4px;
     padding: 0 12px 12px;
   }
 
@@ -965,7 +1007,7 @@ textarea {
     height: auto;
     max-height: 100%;
     min-height: 0;
-    border-radius: 16px;
+    border-radius: 14px;
   }
 }
 
@@ -996,7 +1038,7 @@ textarea {
   }
 
   .bottom-ribbon {
-    padding: 8px 10px 10px 0;
+    padding: 3px 8px 3px 0;
     max-height: none;
     min-height: 0;
     border-top: none;
@@ -1043,7 +1085,7 @@ textarea {
   }
 
   .mobile-panel-tabs {
-    gap: 6px;
+    gap: 4px;
     padding: 6px 10px 0;
   }
 
@@ -1077,7 +1119,7 @@ textarea {
   }
 
   .choices {
-    gap: 8px;
+    gap: 4px;
     padding-bottom: 10px;
   }
 
@@ -1086,13 +1128,13 @@ textarea {
   }
 
   .center-overlay {
-    font-size: 11px;
-    line-height: 1.35;
+    font-size: 10px;
+    line-height: 1.25;
   }
 }
 
 .tab-icon {
-  font-size: 18px;
+  font-size: 15px;
   line-height: 1;
 }
 

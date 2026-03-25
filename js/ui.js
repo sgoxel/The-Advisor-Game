@@ -330,17 +330,29 @@ window.Game = window.Game || {};
 
   function bindUIEvents(onApplySettings, onLanguageChange) {
     const dom = State.dom;
-    dom.mainMenuBtn.addEventListener("click", (event) => {
+    const handleMainMenuToggle = (event) => {
       event.preventDefault();
       event.stopPropagation();
       toggleMainMenu();
+    };
+    dom.mainMenuBtn.addEventListener("click", handleMainMenuToggle);
+    dom.mainMenuBtn.addEventListener("mousedown", (event) => event.stopPropagation());
+    dom.mainMenuBtn.addEventListener("pointerdown", (event) => event.stopPropagation());
+    dom.mainMenuBtn.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") handleMainMenuToggle(event);
     });
     dom.menuGithubBtn.addEventListener("click", () => {
       window.open("https://github.com/sgoxel/The-Advisor-Game", "_blank", "noopener,noreferrer");
       closeMainMenu();
     });
-    dom.menuSaveBtn.addEventListener("click", () => closeMainMenu());
-    dom.menuLoadBtn.addEventListener("click", () => closeMainMenu());
+    dom.menuSaveBtn.addEventListener("click", () => {
+      addLog("Save action selected. Function not implemented yet.");
+      closeMainMenu();
+    });
+    dom.menuLoadBtn.addEventListener("click", () => {
+      addLog("Load action selected. Function not implemented yet.");
+      closeMainMenu();
+    });
     document.addEventListener("click", (event) => {
       if (!dom.mainMenuDropdown || dom.mainMenuDropdown.classList.contains("hidden")) return;
       if (dom.mainMenuDropdown.contains(event.target) || dom.mainMenuBtn.contains(event.target)) return;
