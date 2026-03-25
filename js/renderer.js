@@ -1,6 +1,6 @@
 /*
   FILE PURPOSE:
-  Render the rectangular (top-down) game world with WebGL.
+  Render the rotated-square (45°) game world with WebGL.
 */
 
 window.Game = window.Game || {};
@@ -76,14 +76,17 @@ window.Game = window.Game || {};
     const camera = State.camera;
     const zoom = camera.zoom || 1;
     const tileWidth = scaleWidth || State.world.tileWidth * zoom;
-    const tileHeight = tileWidth;
-    return { tileWidth, tileHeight, halfW: tileWidth / 2, halfH: tileHeight / 2, ratio: 1 };
+    const angleRad = (camera.pitchAngle || Config.DEFAULT_CAMERA_PITCH) * Math.PI / 180;
+    const baseRatio = Math.sin(angleRad);
+    const ratio = Math.max(0.38, Math.min(1.0, baseRatio * (camera.depthStrength || 1)));
+    const tileHeight = tileWidth * ratio;
+    return { tileWidth, tileHeight, halfW: tileWidth / 2, halfH: tileHeight / 2, ratio };
   }
 
   function gridToScreen(row, col, offsetX, offsetY, tileWidth) {
     const metrics = getIsoMetrics(tileWidth);
-    const localX = col * metrics.tileWidth;
-    const localY = row * metrics.tileHeight;
+    const localX = (col - row) * metrics.halfW;
+    const localY = (col + row) * metrics.halfH;
     const xBase = offsetX !== undefined ? offsetX : State.camera.x;
     const yBase = offsetY !== undefined ? offsetY : State.camera.y;
     return { x: xBase + localX, y: yBase + localY };
@@ -95,14 +98,14 @@ window.Game = window.Game || {};
     const yBase = offsetY !== undefined ? offsetY : State.camera.y;
     const lx = x - xBase;
     const ly = y - yBase;
-    const col = lx / metrics.tileWidth;
-    const row = ly / metrics.tileHeight;
+    const col = (lx / metrics.halfW + ly / metrics.halfH) / 2;
+    const row = (ly / metrics.halfH - lx / metrics.halfW) / 2;
     return { row, col };
   }
 
-  function pointInTile(px, py, cx, cy, tileWidth) {
+  function pointInDiamond(px, py, cx, cy, tileWidth) {
     const metrics = getIsoMetrics(tileWidth);
-    return Math.abs(px - cx) <= metrics.halfW && Math.abs(py - cy) <= metrics.halfH;
+    return (Math.abs(px - cx) / metrics.halfW) + (Math.abs(py - cy) / metrics.halfH) <= 1;
   }
 
   function centerCameraOnWorld(x, y) {
@@ -137,8 +140,12 @@ window.Game = window.Game || {};
     const availableWidth = Math.max(1, canvas.clientWidth - padding * 2);
     const availableHeight = Math.max(1, canvas.clientHeight - padding * 2);
 
-    const widthZoom = availableWidth / Math.max(1, world.cols * world.tileWidth);
-    const heightZoom = availableHeight / Math.max(1, world.rows * world.tileWidth);
+    const angleRad = (State.camera.pitchAngle || Config.DEFAULT_CAMERA_PITCH) * Math.PI / 180;
+    const baseRatio = Math.sin(angleRad);
+    const ratio = Math.max(0.38, Math.min(1.0, baseRatio * (State.camera.depthStrength || 1)));
+
+    const widthZoom = availableWidth / Math.max(1, (world.cols + world.rows) * 0.5 * world.tileWidth);
+    const heightZoom = availableHeight / Math.max(1, (world.cols + world.rows) * 0.5 * world.tileWidth * ratio);
     return Math.max(0.08, Math.min(widthZoom, heightZoom));
   }
 
@@ -256,31 +263,33 @@ window.Game = window.Game || {};
     drawEllipse(gl, x2, y2, radius, radius, rgba, 20);
   }
 
-  function getTileOutlineVertices(cx, cy, tileWidth, tileHeight) {
+  function getDiamondOutlineVertices(cx, cy, tileWidth, tileHeight) {
     const halfW = tileWidth / 2;
     const halfH = tileHeight / 2;
-    return [cx - halfW, cy - halfH, cx + halfW, cy - halfH, cx + halfW, cy + halfH, cx - halfW, cy + halfH];
+    return [cx, cy - halfH, cx + halfW, cy, cx, cy + halfH, cx - halfW, cy];
   }
 
-  function getTileTriangleVertices(cx, cy, tileWidth, tileHeight) {
-    const outline = getTileOutlineVertices(cx, cy, tileWidth, tileHeight);
+  function getDiamondTriangleVertices(cx, cy, tileWidth, tileHeight) {
+    const outline = getDiamondOutlineVertices(cx, cy, tileWidth, tileHeight);
     return {
       triangles: [
-        outline[0], outline[1], outline[2], outline[3], outline[4], outline[5],
-        outline[0], outline[1], outline[4], outline[5], outline[6], outline[7]
+        cx, cy, outline[0], outline[1], outline[2], outline[3],
+        cx, cy, outline[2], outline[3], outline[4], outline[5],
+        cx, cy, outline[4], outline[5], outline[6], outline[7],
+        cx, cy, outline[6], outline[7], outline[0], outline[1]
       ],
       outline
     };
   }
 
   function drawTileWebGL(gl, pos, color, tileWidth, tileHeight, highlight) {
-    const vertices = getTileTriangleVertices(pos.x, pos.y, tileWidth, tileHeight);
+    const vertices = getDiamondTriangleVertices(pos.x, pos.y, tileWidth, tileHeight);
     drawTriangles(gl, vertices.triangles, hexToNormalizedRgba(color, 1));
     drawLineLoop(gl, vertices.outline, highlight ? [0.97, 0.87, 0.48, 1] : [0.21, 0.34, 0.22, 0.45]);
   }
 
   function drawSelectionMarker(gl, pos, tileWidth, tileHeight) {
-    drawLineLoop(gl, getTileOutlineVertices(pos.x, pos.y, tileWidth * 0.62, tileHeight * 0.62), [0.97, 0.87, 0.48, 1]);
+    drawLineLoop(gl, getDiamondOutlineVertices(pos.x, pos.y, tileWidth * 0.62, tileHeight * 0.62), [0.97, 0.87, 0.48, 1]);
   }
 
   function drawArrowMarker(gl, fromPos, toPos, tileWidth, tileHeight) {
@@ -385,7 +394,7 @@ window.Game = window.Game || {};
   }
 
   function drawTile(ctx, x, y, tileWidth, tileHeight, color) {
-    const vertices = getTileOutlineVertices(x, y, tileWidth, tileHeight);
+    const vertices = getDiamondOutlineVertices(x, y, tileWidth, tileHeight);
     ctx.beginPath();
     ctx.moveTo(vertices[0], vertices[1]);
     for (let i = 2; i < vertices.length; i += 2) ctx.lineTo(vertices[i], vertices[i + 1]);
@@ -407,8 +416,8 @@ window.Game = window.Game || {};
     markDirty,
     getHexMetrics: getIsoMetrics,
     getGridMetrics: getIsoMetrics,
-    pointInHex: pointInTile,
-    pointInDiamond: pointInTile,
+    pointInHex: pointInDiamond,
+    pointInDiamond,
     updateCameraFollow,
     calculateFitZoom,
     updateZoomLimits,
