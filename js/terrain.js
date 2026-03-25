@@ -244,6 +244,152 @@ window.Game = window.Game || {};
     }
   }
 
+
+
+  function buildVisualPalette(tileType) {
+    switch (tileType) {
+      case "grass":
+        return {
+          base: [90, 154, 90],
+          dominant: [[64, 118, 66], [84, 143, 80], [107, 171, 100], [128, 188, 116]],
+          accents: [[132, 138, 118], [152, 145, 90], [131, 105, 72]],
+          accentBias: 0.24
+        };
+      case "grass2":
+        return {
+          base: [104, 168, 103],
+          dominant: [[77, 131, 76], [98, 159, 91], [118, 181, 109], [141, 197, 129]],
+          accents: [[139, 141, 120], [164, 154, 94], [137, 112, 78]],
+          accentBias: 0.22
+        };
+      case "hillGrass":
+        return {
+          base: [104, 145, 94],
+          dominant: [[72, 110, 69], [93, 133, 84], [117, 157, 103], [136, 169, 114]],
+          accents: [[128, 130, 115], [149, 138, 86], [120, 99, 74]],
+          accentBias: 0.26
+        };
+      case "dirt":
+      case "dirtHill":
+        return {
+          base: [155, 118, 79],
+          dominant: [[118, 84, 54], [139, 101, 66], [163, 123, 79], [184, 146, 96]],
+          accents: [[117, 120, 103], [148, 142, 93], [98, 89, 74]],
+          accentBias: 0.18
+        };
+      case "road":
+        return {
+          base: [181, 151, 104],
+          dominant: [[154, 129, 85], [176, 147, 101], [194, 166, 118], [137, 123, 98]],
+          accents: [[121, 104, 76], [153, 147, 126], [114, 117, 121]],
+          accentBias: 0.18
+        };
+      case "hillStone":
+      case "stone":
+        return {
+          base: [144, 149, 156],
+          dominant: [[111, 117, 127], [132, 139, 147], [150, 157, 164], [171, 177, 183]],
+          accents: [[128, 123, 107], [117, 124, 98], [98, 102, 109]],
+          accentBias: 0.12
+        };
+      case "forest":
+      case "forestHill":
+        return {
+          base: [60, 112, 67],
+          dominant: [[35, 72, 41], [47, 90, 52], [60, 108, 65], [80, 134, 82]],
+          accents: [[94, 98, 83], [113, 103, 69], [89, 74, 54]],
+          accentBias: 0.17
+        };
+      case "settlement":
+        return {
+          base: [183, 176, 162],
+          dominant: [[149, 141, 127], [170, 162, 148], [188, 180, 166], [206, 199, 185]],
+          accents: [[123, 126, 129], [146, 126, 95], [104, 104, 104]],
+          accentBias: 0.14
+        };
+      case "water":
+        return {
+          base: [76, 122, 180],
+          dominant: [[48, 92, 152], [67, 114, 172], [86, 136, 190], [104, 157, 208]],
+          accents: [[78, 101, 133], [59, 73, 101], [112, 133, 155]],
+          accentBias: 0.10
+        };
+      default:
+        return {
+          base: [90, 154, 90],
+          dominant: [[64, 118, 66], [84, 143, 80], [107, 171, 100], [128, 188, 116]],
+          accents: [[132, 138, 118], [152, 145, 90], [131, 105, 72]],
+          accentBias: 0.22
+        };
+    }
+  }
+
+  function pickArrayColor(rng, colors) {
+    return colors[Math.floor(rng() * colors.length)].slice();
+  }
+
+  function jitterColor(rgb, amount, rng, floorValue) {
+    return rgb.map((channel) => {
+      const shift = Math.round((rng() - 0.5) * amount * 2);
+      return Utils.clamp(channel + shift, floorValue !== undefined ? floorValue : 0, 255);
+    });
+  }
+
+  function mixColor(base, target, factor) {
+    return [
+      Math.round(base[0] + (target[0] - base[0]) * factor),
+      Math.round(base[1] + (target[1] - base[1]) * factor),
+      Math.round(base[2] + (target[2] - base[2]) * factor)
+    ];
+  }
+
+  function buildNoiseCells(tileType, palette, baseColor, rng, visual) {
+    const gridSize = Math.max(1, Math.round(visual.noiseSize || 1));
+    if (gridSize <= 1) return { gridSize: 1, cells: [] };
+
+    const density = Math.max(1, Math.round(visual.noiseDensity || gridSize));
+    const activeChance = Math.min(1, density / gridSize);
+    const accentChance = Math.min(0.92, palette.accentBias + (visual.accentStrength / 100) * 0.42);
+    const jitterAmount = 4 + visual.colorVariance;
+    const blendStrength = Utils.clamp(visual.noiseOpacity, 0, 1);
+    const cells = [];
+
+    for (let gy = 0; gy < gridSize; gy++) {
+      for (let gx = 0; gx < gridSize; gx++) {
+        let color = baseColor.slice();
+        if (rng() <= activeChance) {
+          const source = rng() < accentChance ? palette.accents : palette.dominant;
+          const target = jitterColor(pickArrayColor(rng, source), jitterAmount, rng, 24);
+          color = mixColor(baseColor, target, blendStrength);
+        }
+        cells.push(color);
+      }
+    }
+
+    return { gridSize, cells };
+  }
+
+  function assignTileVisuals(grid, seed) {
+    const world = State.world;
+    const visual = State.visual;
+
+    for (let row = 0; row < world.rows; row++) {
+      for (let col = 0; col < world.cols; col++) {
+        const tile = grid[row][col];
+        const rng = RNG.createSeededRandom(`${seed}|visual|${row}|${col}|${tile.type}`);
+        const palette = buildVisualPalette(tile.type);
+        const base = jitterColor(palette.base, Math.max(2, Math.round(visual.colorVariance * 0.35)), rng, 28);
+        const noise = buildNoiseCells(tile.type, palette, base, rng, visual);
+
+        tile.visual = {
+          base,
+          gridSize: noise.gridSize,
+          cells: noise.cells
+        };
+      }
+    }
+  }
+
   function finalizeStats(grid, params) {
     const world = State.world;
     const counts = {
@@ -297,6 +443,7 @@ window.Game = window.Game || {};
       addSettlement(grid, params, seed);
       addForest(grid, params, seed);
       addBaseSurface(grid, params, seed);
+      assignTileVisuals(grid, seed);
       finalizeStats(grid, params);
 
       return {

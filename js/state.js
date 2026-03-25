@@ -100,6 +100,15 @@ window.Game = window.Game || {};
       params: {}
     },
 
+
+    visual: {
+      noiseDensity: 6,
+      noiseSize: 6,
+      noiseOpacity: 0.72,
+      colorVariance: 18,
+      accentStrength: 35
+    },
+
     render: {
       program: null,
       positionBuffer: null,

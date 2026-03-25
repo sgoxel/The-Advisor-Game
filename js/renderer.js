@@ -199,6 +199,10 @@ window.Game = window.Game || {};
   }
 
   function terrainColor(tile) {
+    if (tile && tile.visual && tile.visual.base) {
+      const base = tile.visual.base;
+      return `rgb(${base[0]}, ${base[1]}, ${base[2]})`;
+    }
     switch (tile.type) {
       case 'grass': return '#5a9b5f';
       case 'grass2': return '#6aaa6c';
@@ -282,9 +286,52 @@ window.Game = window.Game || {};
     };
   }
 
-  function drawTileWebGL(gl, pos, color, tileWidth, tileHeight, highlight) {
+  function drawNoisePatches(gl, pos, tile, tileWidth, tileHeight) {
+    if (!tile || !tile.visual || !tile.visual.cells || tile.visual.gridSize <= 1) return;
+
+    const halfW = tileWidth / 2;
+    const halfH = tileHeight / 2;
+    const top = { x: pos.x, y: pos.y - halfH };
+    const right = { x: pos.x + halfW, y: pos.y };
+    const left = { x: pos.x - halfW, y: pos.y };
+    const gridSize = tile.visual.gridSize;
+
+    function mapPoint(u, v) {
+      return {
+        x: top.x + (right.x - top.x) * u + (left.x - top.x) * v,
+        y: top.y + (right.y - top.y) * u + (left.y - top.y) * v
+      };
+    }
+
+    for (let gy = 0; gy < gridSize; gy++) {
+      for (let gx = 0; gx < gridSize; gx++) {
+        const idx = gy * gridSize + gx;
+        const rgb = tile.visual.cells[idx];
+        if (!rgb) continue;
+        const u0 = gx / gridSize;
+        const v0 = gy / gridSize;
+        const u1 = (gx + 1) / gridSize;
+        const v1 = (gy + 1) / gridSize;
+        const p00 = mapPoint(u0, v0);
+        const p10 = mapPoint(u1, v0);
+        const p11 = mapPoint(u1, v1);
+        const p01 = mapPoint(u0, v1);
+        drawTriangles(gl, [
+          p00.x, p00.y,
+          p10.x, p10.y,
+          p11.x, p11.y,
+          p00.x, p00.y,
+          p11.x, p11.y,
+          p01.x, p01.y
+        ], [rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, 1]);
+      }
+    }
+  }
+
+  function drawTileWebGL(gl, pos, color, tile, tileWidth, tileHeight, highlight) {
     const vertices = getDiamondTriangleVertices(pos.x, pos.y, tileWidth, tileHeight);
     drawTriangles(gl, vertices.triangles, hexToNormalizedRgba(color, 1));
+    drawNoisePatches(gl, pos, tile, tileWidth, tileHeight);
     drawLineLoop(gl, vertices.outline, highlight ? [0.97, 0.87, 0.48, 1] : [0.21, 0.34, 0.22, 0.45]);
   }
 
@@ -379,7 +426,7 @@ window.Game = window.Game || {};
         const tile = world.terrain[row][col];
         const isHovered = world.hover && world.hover.row === row && world.hover.col === col;
         const isSelected = world.selected && world.selected.row === row && world.selected.col === col;
-        drawTileWebGL(gl, pos, terrainColor(tile), metrics.tileWidth, metrics.tileHeight, isHovered || isSelected);
+        drawTileWebGL(gl, pos, terrainColor(tile), tile, metrics.tileWidth, metrics.tileHeight, isHovered || isSelected);
         if (isSelected) drawSelectionMarker(gl, pos, metrics.tileWidth, metrics.tileHeight);
       }
     }
