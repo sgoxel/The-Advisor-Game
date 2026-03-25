@@ -15,6 +15,11 @@ window.Game = window.Game || {};
     dom.miniCtx = dom.minimap.getContext("2d");
 
     dom.settingsModal = document.getElementById("settingsModal");
+    dom.mainMenuBtn = document.getElementById("mainMenuBtn");
+    dom.mainMenuDropdown = document.getElementById("mainMenuDropdown");
+    dom.menuGithubBtn = document.getElementById("menuGithubBtn");
+    dom.menuSaveBtn = document.getElementById("menuSaveBtn");
+    dom.menuLoadBtn = document.getElementById("menuLoadBtn");
     dom.settingsBtn = document.getElementById("settingsBtn");
     dom.applySettingsBtn = document.getElementById("applySettingsBtn");
     dom.cancelSettingsBtn = document.getElementById("cancelSettingsBtn");
@@ -111,6 +116,29 @@ window.Game = window.Game || {};
     renderLogs();
   }
 
+
+  function isMenuOpen() {
+    return State.dom.mainMenuDropdown && !State.dom.mainMenuDropdown.classList.contains("hidden");
+  }
+
+  function openMainMenu() {
+    if (!State.dom.mainMenuDropdown) return;
+    State.dom.mainMenuDropdown.classList.remove("hidden");
+    if (State.dom.mainMenuBtn) State.dom.mainMenuBtn.setAttribute("aria-expanded", "true");
+  }
+
+  function closeMainMenu() {
+    if (!State.dom.mainMenuDropdown) return;
+    State.dom.mainMenuDropdown.classList.add("hidden");
+    if (State.dom.mainMenuBtn) State.dom.mainMenuBtn.setAttribute("aria-expanded", "false");
+  }
+
+  function toggleMainMenu(forceState) {
+    const shouldOpen = typeof forceState === "boolean" ? forceState : !isMenuOpen();
+    if (shouldOpen) openMainMenu();
+    else closeMainMenu();
+  }
+
   function openSettingsModal() { syncSettingsInputs(); updateParamUI(); State.dom.settingsModal.classList.remove("hidden"); addLog(I18n.t("logs.settingsOpened")); }
   function closeSettingsModal() { State.dom.settingsModal.classList.add("hidden"); addLog(I18n.t("logs.settingsClosed")); }
   function openLogModal() { State.dom.logModal.classList.remove("hidden"); addLog(I18n.t("logs.logOpened")); }
@@ -143,6 +171,30 @@ window.Game = window.Game || {};
 
   function bindUIEvents(onApplySettings, onLanguageChange) {
     const dom = State.dom;
+    dom.mainMenuBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleMainMenu();
+    });
+    dom.menuGithubBtn.addEventListener("click", () => {
+      window.open("https://github.com/sgoxel/The-Advisor-Game", "_blank", "noopener,noreferrer");
+      closeMainMenu();
+    });
+    dom.menuSaveBtn.addEventListener("click", () => closeMainMenu());
+    dom.menuLoadBtn.addEventListener("click", () => closeMainMenu());
+    document.addEventListener("click", (event) => {
+      if (!dom.mainMenuDropdown || dom.mainMenuDropdown.classList.contains("hidden")) return;
+      if (dom.mainMenuDropdown.contains(event.target) || dom.mainMenuBtn.contains(event.target)) return;
+      closeMainMenu();
+    });
+    document.addEventListener("pointerdown", (event) => {
+      if (!dom.mainMenuDropdown || dom.mainMenuDropdown.classList.contains("hidden")) return;
+      if (dom.mainMenuDropdown.contains(event.target) || dom.mainMenuBtn.contains(event.target)) return;
+      closeMainMenu();
+    }, true);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeMainMenu();
+    });
     dom.settingsBtn.addEventListener("click", openSettingsModal);
     dom.cancelSettingsBtn.addEventListener("click", closeSettingsModal);
     dom.logBtn.addEventListener("click", openLogModal);
@@ -165,6 +217,9 @@ window.Game = window.Game || {};
     bindUIEvents,
     updateDialogText,
     bindChoiceButtons,
-    applyCurrentLanguageToUI
+    applyCurrentLanguageToUI,
+    openMainMenu,
+    closeMainMenu,
+    toggleMainMenu
   };
 })();

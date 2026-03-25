@@ -18,6 +18,11 @@ window.Game.Locales.en = {
     "log": "Log",
     "language": "Language"
   },
+  "menu": {
+    "githubPage": "Github Page",
+    "save": "Save",
+    "load": "Load"
+  },
   "stats": {
     "gold": "Gold",
     "health": "Health",

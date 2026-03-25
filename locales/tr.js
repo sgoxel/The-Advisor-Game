@@ -18,6 +18,11 @@ window.Game.Locales.tr = {
     "log": "Log",
     "language": "Dil"
   },
+  "menu": {
+    "githubPage": "Github Page",
+    "save": "Save",
+    "load": "Load"
+  },
   "stats": {
     "gold": "Altın",
     "health": "Sağlık",

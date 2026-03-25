@@ -146,7 +146,14 @@
     <!-- Top Ribbon -->
     <header class="ribbon">
       <div class="top-left">
-        <button class="menu-btn" type="button" data-i18n="header.mainMenu">Main Menu</button>
+        <div class="menu-dropdown">
+          <button class="menu-btn" id="mainMenuBtn" type="button" aria-haspopup="true" aria-expanded="false" data-i18n="header.mainMenu">Main Menu</button>
+          <div id="mainMenuDropdown" class="dropdown-panel hidden" role="menu" aria-labelledby="mainMenuBtn">
+            <button class="dropdown-item" id="menuGithubBtn" type="button" role="menuitem" data-i18n="menu.githubPage">Github Page</button>
+            <button class="dropdown-item" id="menuSaveBtn" type="button" role="menuitem" data-i18n="menu.save">Save</button>
+            <button class="dropdown-item" id="menuLoadBtn" type="button" role="menuitem" data-i18n="menu.load">Load</button>
+          </div>
+        </div>
         <button class="menu-btn" id="settingsBtn" type="button" data-i18n="header.settings">Settings</button>
         <button class="menu-btn" id="logBtn" type="button" data-i18n="header.log">Log</button>
 
