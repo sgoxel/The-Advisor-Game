@@ -1,6 +1,6 @@
 /*
   FILE PURPOSE:
-  Render the standard rectangular game world with WebGL.
+  Render the rectangular game world with WebGL using true 3D perspective projection.
 */
 
 window.Game = window.Game || {};
@@ -10,32 +10,28 @@ window.Game = window.Game || {};
   const Config = window.Game.Config;
 
   const COLOR_VERTEX_SHADER_SOURCE = `
-    attribute vec2 a_position;
-    uniform vec2 u_resolution;
+    attribute vec3 a_position;
+    uniform mat4 u_matrix;
     void main() {
-      vec2 zeroToOne = a_position / u_resolution;
-      vec2 zeroToTwo = zeroToOne * 2.0;
-      vec2 clipSpace = zeroToTwo - 1.0;
-      gl_Position = vec4(clipSpace * vec2(1.0, -1.0), 0.0, 1.0);
+      gl_Position = u_matrix * vec4(a_position, 1.0);
     }
   `;
 
   const COLOR_FRAGMENT_SHADER_SOURCE = `
     precision mediump float;
     uniform vec4 u_color;
-    void main() { gl_FragColor = u_color; }
+    void main() {
+      gl_FragColor = u_color;
+    }
   `;
 
   const TEXTURE_VERTEX_SHADER_SOURCE = `
-    attribute vec2 a_position;
+    attribute vec3 a_position;
     attribute vec2 a_texCoord;
-    uniform vec2 u_resolution;
+    uniform mat4 u_matrix;
     varying vec2 v_texCoord;
     void main() {
-      vec2 zeroToOne = a_position / u_resolution;
-      vec2 zeroToTwo = zeroToOne * 2.0;
-      vec2 clipSpace = zeroToTwo - 1.0;
-      gl_Position = vec4(clipSpace * vec2(1.0, -1.0), 0.0, 1.0);
+      gl_Position = u_matrix * vec4(a_position, 1.0);
       v_texCoord = a_texCoord;
     }
   `;
@@ -48,6 +44,11 @@ window.Game = window.Game || {};
       gl_FragColor = texture2D(u_texture, v_texCoord);
     }
   `;
+
+  const EPSILON = 0.000001;
+  const WORLD_SURFACE_Y = 0.0;
+  const GRID_OVERLAY_Y = 0.25;
+  const MARKER_Y = 1.15;
 
   function markDirty(worldDirty, minimapDirty) {
     if (worldDirty !== false) {
@@ -62,7 +63,9 @@ window.Game = window.Game || {};
     const shader = gl.createShader(type);
     gl.shaderSource(shader, source);
     gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(`Shader compile error: ${gl.getShaderInfoLog(shader)}`);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      throw new Error(`Shader compile error: ${gl.getShaderInfoLog(shader)}`);
+    }
     return shader;
   }
 
@@ -71,7 +74,9 @@ window.Game = window.Game || {};
     gl.attachShader(program, vs);
     gl.attachShader(program, fs);
     gl.linkProgram(program);
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(`Program link error: ${gl.getProgramInfoLog(program)}`);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      throw new Error(`Program link error: ${gl.getProgramInfoLog(program)}`);
+    }
     return program;
   }
 
@@ -82,25 +87,21 @@ window.Game = window.Game || {};
 
     const colorVs = createShader(gl, gl.VERTEX_SHADER, COLOR_VERTEX_SHADER_SOURCE);
     const colorFs = createShader(gl, gl.FRAGMENT_SHADER, COLOR_FRAGMENT_SHADER_SOURCE);
-    const colorProgram = createProgram(gl, colorVs, colorFs);
-
-    render.colorProgram = colorProgram;
+    render.colorProgram = createProgram(gl, colorVs, colorFs);
     render.positionBuffer = gl.createBuffer();
-    render.colorPositionLocation = gl.getAttribLocation(colorProgram, 'a_position');
-    render.colorResolutionLocation = gl.getUniformLocation(colorProgram, 'u_resolution');
-    render.colorLocation = gl.getUniformLocation(colorProgram, 'u_color');
+    render.colorPositionLocation = gl.getAttribLocation(render.colorProgram, "a_position");
+    render.colorMatrixLocation = gl.getUniformLocation(render.colorProgram, "u_matrix");
+    render.colorLocation = gl.getUniformLocation(render.colorProgram, "u_color");
 
     const textureVs = createShader(gl, gl.VERTEX_SHADER, TEXTURE_VERTEX_SHADER_SOURCE);
     const textureFs = createShader(gl, gl.FRAGMENT_SHADER, TEXTURE_FRAGMENT_SHADER_SOURCE);
-    const textureProgram = createProgram(gl, textureVs, textureFs);
-
-    render.textureProgram = textureProgram;
+    render.textureProgram = createProgram(gl, textureVs, textureFs);
     render.texturePositionBuffer = gl.createBuffer();
     render.textureCoordBuffer = gl.createBuffer();
-    render.texturePositionLocation = gl.getAttribLocation(textureProgram, 'a_position');
-    render.textureCoordLocation = gl.getAttribLocation(textureProgram, 'a_texCoord');
-    render.textureResolutionLocation = gl.getUniformLocation(textureProgram, 'u_resolution');
-    render.textureSamplerLocation = gl.getUniformLocation(textureProgram, 'u_texture');
+    render.texturePositionLocation = gl.getAttribLocation(render.textureProgram, "a_position");
+    render.textureCoordLocation = gl.getAttribLocation(render.textureProgram, "a_texCoord");
+    render.textureMatrixLocation = gl.getUniformLocation(render.textureProgram, "u_matrix");
+    render.textureSamplerLocation = gl.getUniformLocation(render.textureProgram, "u_texture");
     render.backgroundTexture = gl.createTexture();
 
     gl.bindTexture(gl.TEXTURE_2D, render.backgroundTexture);
@@ -109,37 +110,282 @@ window.Game = window.Game || {};
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 
-    gl.disable(gl.DEPTH_TEST);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
   }
 
   function getGridMetrics(scaleWidth) {
-    const camera = State.camera;
-    const zoom = camera.zoom || 1;
-    const tileWidth = scaleWidth || State.world.tileWidth * zoom;
+    const tileWidth = scaleWidth || State.world.tileWidth;
     const tileHeight = tileWidth;
     return { tileWidth, tileHeight, halfW: tileWidth / 2, halfH: tileHeight / 2, ratio: 1 };
   }
 
-  function gridToScreen(row, col, offsetX, offsetY, tileWidth) {
-    const metrics = getGridMetrics(tileWidth);
-    const localX = col * metrics.tileWidth + metrics.halfW;
-    const localY = row * metrics.tileHeight + metrics.halfH;
-    const xBase = offsetX !== undefined ? offsetX : State.camera.x;
-    const yBase = offsetY !== undefined ? offsetY : State.camera.y;
-    return { x: xBase + localX, y: yBase + localY };
+  function degToRad(value) {
+    return (value * Math.PI) / 180;
   }
 
-  function screenToGridFloat(x, y, offsetX, offsetY, tileWidth) {
+  function clampPitch(value) {
+    return Math.max(1, Math.min(89.999, value));
+  }
+
+  function vec3Subtract(a, b) {
+    return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  }
+
+  function vec3Add(a, b) {
+    return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+  }
+
+  function vec3Scale(v, s) {
+    return [v[0] * s, v[1] * s, v[2] * s];
+  }
+
+  function vec3Dot(a, b) {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  }
+
+  function vec3Cross(a, b) {
+    return [
+      a[1] * b[2] - a[2] * b[1],
+      a[2] * b[0] - a[0] * b[2],
+      a[0] * b[1] - a[1] * b[0]
+    ];
+  }
+
+  function vec3Length(v) {
+    return Math.hypot(v[0], v[1], v[2]);
+  }
+
+  function vec3Normalize(v) {
+    const len = vec3Length(v) || 1;
+    return [v[0] / len, v[1] / len, v[2] / len];
+  }
+
+  function mat4Identity() {
+    return new Float32Array([
+      1, 0, 0, 0,
+      0, 1, 0, 0,
+      0, 0, 1, 0,
+      0, 0, 0, 1
+    ]);
+  }
+
+  function mat4Multiply(a, b) {
+    const out = new Float32Array(16);
+    for (let col = 0; col < 4; col++) {
+      for (let row = 0; row < 4; row++) {
+        out[col * 4 + row] =
+          a[0 * 4 + row] * b[col * 4 + 0] +
+          a[1 * 4 + row] * b[col * 4 + 1] +
+          a[2 * 4 + row] * b[col * 4 + 2] +
+          a[3 * 4 + row] * b[col * 4 + 3];
+      }
+    }
+    return out;
+  }
+
+  function mat4Perspective(fovyRad, aspect, near, far) {
+    const f = 1.0 / Math.tan(fovyRad / 2);
+    const nf = 1 / (near - far);
+    return new Float32Array([
+      f / aspect, 0, 0, 0,
+      0, f, 0, 0,
+      0, 0, (far + near) * nf, -1,
+      0, 0, (2 * far * near) * nf, 0
+    ]);
+  }
+
+  function mat4LookAt(eye, target, up) {
+    const zAxis = vec3Normalize(vec3Subtract(eye, target));
+    const xAxis = vec3Normalize(vec3Cross(up, zAxis));
+    const yAxis = vec3Cross(zAxis, xAxis);
+
+    return new Float32Array([
+      xAxis[0], yAxis[0], zAxis[0], 0,
+      xAxis[1], yAxis[1], zAxis[1], 0,
+      xAxis[2], yAxis[2], zAxis[2], 0,
+      -vec3Dot(xAxis, eye), -vec3Dot(yAxis, eye), -vec3Dot(zAxis, eye), 1
+    ]);
+  }
+
+  function mat4Invert(m) {
+    const out = new Float32Array(16);
+    const b00 = m[0] * m[5] - m[1] * m[4];
+    const b01 = m[0] * m[6] - m[2] * m[4];
+    const b02 = m[0] * m[7] - m[3] * m[4];
+    const b03 = m[1] * m[6] - m[2] * m[5];
+    const b04 = m[1] * m[7] - m[3] * m[5];
+    const b05 = m[2] * m[7] - m[3] * m[6];
+    const b06 = m[8] * m[13] - m[9] * m[12];
+    const b07 = m[8] * m[14] - m[10] * m[12];
+    const b08 = m[8] * m[15] - m[11] * m[12];
+    const b09 = m[9] * m[14] - m[10] * m[13];
+    const b10 = m[9] * m[15] - m[11] * m[13];
+    const b11 = m[10] * m[15] - m[11] * m[14];
+
+    let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+    if (!det) return null;
+    det = 1.0 / det;
+
+    out[0] = (m[5] * b11 - m[6] * b10 + m[7] * b09) * det;
+    out[1] = (-m[1] * b11 + m[2] * b10 - m[3] * b09) * det;
+    out[2] = (m[13] * b05 - m[14] * b04 + m[15] * b03) * det;
+    out[3] = (-m[9] * b05 + m[10] * b04 - m[11] * b03) * det;
+    out[4] = (-m[4] * b11 + m[6] * b08 - m[7] * b07) * det;
+    out[5] = (m[0] * b11 - m[2] * b08 + m[3] * b07) * det;
+    out[6] = (-m[12] * b05 + m[14] * b02 - m[15] * b01) * det;
+    out[7] = (m[8] * b05 - m[10] * b02 + m[11] * b01) * det;
+    out[8] = (m[4] * b10 - m[5] * b08 + m[7] * b06) * det;
+    out[9] = (-m[0] * b10 + m[1] * b08 - m[3] * b06) * det;
+    out[10] = (m[12] * b04 - m[13] * b02 + m[15] * b00) * det;
+    out[11] = (-m[8] * b04 + m[9] * b02 - m[11] * b00) * det;
+    out[12] = (-m[4] * b09 + m[5] * b07 - m[6] * b06) * det;
+    out[13] = (m[0] * b09 - m[1] * b07 + m[2] * b06) * det;
+    out[14] = (-m[12] * b03 + m[13] * b01 - m[14] * b00) * det;
+    out[15] = (m[8] * b03 - m[9] * b01 + m[10] * b00) * det;
+    return out;
+  }
+
+  function transformPoint(matrix, x, y, z, w) {
+    const iw = w === undefined ? 1 : w;
+    return [
+      matrix[0] * x + matrix[4] * y + matrix[8] * z + matrix[12] * iw,
+      matrix[1] * x + matrix[5] * y + matrix[9] * z + matrix[13] * iw,
+      matrix[2] * x + matrix[6] * y + matrix[10] * z + matrix[14] * iw,
+      matrix[3] * x + matrix[7] * y + matrix[11] * z + matrix[15] * iw
+    ];
+  }
+
+  function getWorldSize(metrics) {
+    return {
+      width: State.world.cols * metrics.tileWidth,
+      depth: State.world.rows * metrics.tileHeight
+    };
+  }
+
+  function getCameraTarget(metrics) {
+    const size = getWorldSize(metrics);
+    return {
+      x: size.width / 2 - State.camera.x,
+      z: size.depth / 2 - State.camera.y
+    };
+  }
+
+  function getCameraDistance(metrics, aspect, pitchRad) {
+    const size = getWorldSize(metrics);
+    const zoom = Math.max(State.camera.zoom || 1, 0.01);
+    const depthStrength = Math.max(0.05, State.camera.depthStrength || 1);
+
+    const fovY = degToRad(45);
+    const fovX = 2 * Math.atan(Math.tan(fovY / 2) * Math.max(0.001, aspect));
+
+    const fitWidthDistance = (size.width * 0.5) / Math.tan(fovX / 2);
+    const projectedDepth = (size.depth * 0.5) * Math.max(0.2, Math.sin(pitchRad));
+    const fitDepthDistance = projectedDepth / Math.tan(fovY / 2);
+
+    const baseDistance = Math.max(fitWidthDistance, fitDepthDistance);
+    const depthFactor = 0.72 + depthStrength * 0.08;
+
+    return (baseDistance * depthFactor) / zoom;
+  }
+
+  function getProjectionData() {
+    const canvas = State.dom.canvas;
+    const metrics = getGridMetrics();
+    const aspect = Math.max(0.001, canvas.clientWidth / Math.max(1, canvas.clientHeight));
+    const pitchRad = degToRad(clampPitch(State.camera.pitchAngle || 90));
+    const target = getCameraTarget(metrics);
+    const distance = getCameraDistance(metrics, aspect, pitchRad);
+    const eye = [
+      target.x,
+      Math.max(2, Math.sin(pitchRad) * distance),
+      target.z - Math.max(2, Math.cos(pitchRad) * distance)
+    ];
+    const targetVec = [target.x, WORLD_SURFACE_Y, target.z];
+    const up = [0, 1, 0];
+
+    const size = getWorldSize(metrics);
+    const far = Math.max(4000, distance + Math.max(size.width, size.depth) * 4);
+    const projection = mat4Perspective(degToRad(45), aspect, 0.1, far);
+    const view = mat4LookAt(eye, targetVec, up);
+    const viewProjection = mat4Multiply(projection, view);
+    const inverseViewProjection = mat4Invert(viewProjection) || mat4Identity();
+
+    return {
+      metrics,
+      eye,
+      target: targetVec,
+      projection,
+      view,
+      viewProjection,
+      inverseViewProjection,
+      canvasWidth: canvas.clientWidth,
+      canvasHeight: canvas.clientHeight
+    };
+  }
+
+  function projectWorldToScreen(worldX, worldY, worldZ) {
+    const pd = getProjectionData();
+    const clip = transformPoint(pd.viewProjection, worldX, worldY, worldZ, 1);
+    const invW = Math.abs(clip[3]) > EPSILON ? 1 / clip[3] : 1;
+    const ndcX = clip[0] * invW;
+    const ndcY = clip[1] * invW;
+    return {
+      x: ((ndcX + 1) * 0.5) * pd.canvasWidth,
+      y: ((1 - ndcY) * 0.5) * pd.canvasHeight,
+      visible: clip[3] > 0
+    };
+  }
+
+  function screenToWorldOnGround(screenX, screenY) {
+    const pd = getProjectionData();
+    const ndcX = (screenX / Math.max(1, pd.canvasWidth)) * 2 - 1;
+    const ndcY = 1 - (screenY / Math.max(1, pd.canvasHeight)) * 2;
+
+    const nearPoint = transformPoint(pd.inverseViewProjection, ndcX, ndcY, -1, 1);
+    const farPoint = transformPoint(pd.inverseViewProjection, ndcX, ndcY, 1, 1);
+
+    const near = [nearPoint[0] / nearPoint[3], nearPoint[1] / nearPoint[3], nearPoint[2] / nearPoint[3]];
+    const far = [farPoint[0] / farPoint[3], farPoint[1] / farPoint[3], farPoint[2] / farPoint[3]];
+    const direction = vec3Subtract(far, near);
+
+    if (Math.abs(direction[1]) < EPSILON) return null;
+    const t = (WORLD_SURFACE_Y - near[1]) / direction[1];
+    if (t < 0) return null;
+
+    return {
+      x: near[0] + direction[0] * t,
+      z: near[2] + direction[2] * t
+    };
+  }
+
+  function gridToWorld(row, col, tileWidth) {
     const metrics = getGridMetrics(tileWidth);
-    const xBase = offsetX !== undefined ? offsetX : State.camera.x;
-    const yBase = offsetY !== undefined ? offsetY : State.camera.y;
-    const lx = x - xBase;
-    const ly = y - yBase;
-    const col = (lx / metrics.tileWidth) - 0.5;
-    const row = (ly / metrics.tileHeight) - 0.5;
-    return { row, col };
+    return {
+      x: col * metrics.tileWidth + metrics.halfW,
+      z: row * metrics.tileHeight + metrics.halfH
+    };
+  }
+
+  function gridToScreen(row, col, offsetX, offsetY, tileWidth) {
+    const world = gridToWorld(row, col, tileWidth);
+    const projected = projectWorldToScreen(world.x, WORLD_SURFACE_Y, world.z);
+    return {
+      x: projected.x + (offsetX || 0),
+      y: projected.y + (offsetY || 0)
+    };
+  }
+
+  function screenToGridFloat(x, y) {
+    const hit = screenToWorldOnGround(x, y);
+    if (!hit) return { row: -1, col: -1 };
+    const metrics = getGridMetrics();
+    return {
+      row: hit.z / metrics.tileHeight - 0.5,
+      col: hit.x / metrics.tileWidth - 0.5
+    };
   }
 
   function pointInRect(px, py, cx, cy, tileWidth) {
@@ -147,10 +393,11 @@ window.Game = window.Game || {};
     return Math.abs(px - cx) <= metrics.halfW && Math.abs(py - cy) <= metrics.halfH;
   }
 
-  function centerCameraOnWorld(x, y) {
-    const canvas = State.dom.canvas;
-    const nextX = canvas.clientWidth / 2 - x;
-    const nextY = canvas.clientHeight / 2 - y;
+  function centerCameraOnWorld(x, z) {
+    const metrics = getGridMetrics();
+    const size = getWorldSize(metrics);
+    const nextX = size.width / 2 - x;
+    const nextY = size.depth / 2 - z;
     if (Math.abs(State.camera.x - nextX) > 0.01 || Math.abs(State.camera.y - nextY) > 0.01) {
       State.camera.x = nextX;
       State.camera.y = nextY;
@@ -160,35 +407,35 @@ window.Game = window.Game || {};
 
   function getPlayerWorldPosition() {
     const player = State.world.player;
-    if (!player) return { x: 0, y: 0 };
-    if (!player.moving) return gridToScreen(player.row, player.col, 0, 0);
-    const start = gridToScreen(player.startRow, player.startCol, 0, 0);
-    const end = gridToScreen(player.targetRow, player.targetCol, 0, 0);
+    if (!player) return { x: 0, z: 0 };
+    if (!player.moving) return gridToWorld(player.row, player.col, 0);
+
+    const start = gridToWorld(player.startRow, player.startCol, 0);
+    const end = gridToWorld(player.targetRow, player.targetCol, 0);
     const t = Math.max(0, Math.min(1, player.progress || 0));
-    return { x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t };
+    return {
+      x: start.x + (end.x - start.x) * t,
+      z: start.z + (end.z - start.z) * t
+    };
   }
 
-  function centerCameraOnTile(row, col) { const pos = gridToScreen(row, col, 0, 0); centerCameraOnWorld(pos.x, pos.y); }
-  function centerCamera() { const p = getPlayerWorldPosition(); centerCameraOnWorld(p.x, p.y); }
+  function centerCameraOnTile(row, col) {
+    const pos = gridToWorld(row, col, 0);
+    centerCameraOnWorld(pos.x, pos.z);
+  }
 
-  function calculateFitZoom(paddingRatio) {
-    const canvas = State.dom.canvas;
-    const world = State.world;
-    if (!canvas || !canvas.clientWidth || !canvas.clientHeight || !world.rows || !world.cols) return 1;
+  function centerCamera() {
+    const p = getPlayerWorldPosition();
+    centerCameraOnWorld(p.x, p.z);
+  }
 
-    const padding = Math.max(24, Math.min(canvas.clientWidth, canvas.clientHeight) * (paddingRatio || 0.08));
-    const availableWidth = Math.max(1, canvas.clientWidth - padding * 2);
-    const availableHeight = Math.max(1, canvas.clientHeight - padding * 2);
-
-    const widthZoom = availableWidth / Math.max(1, world.cols * world.tileWidth);
-    const heightZoom = availableHeight / Math.max(1, world.rows * world.tileWidth);
-    return Math.max(0.08, Math.min(widthZoom, heightZoom));
+  function calculateFitZoom() {
+    return 1;
   }
 
   function updateZoomLimits() {
-    const fitZoom = Number(calculateFitZoom(0.06).toFixed(3));
     const camera = State.camera;
-    camera.minZoom = Math.min(1, fitZoom);
+    camera.minZoom = 0.08;
     if (camera.maxZoom <= camera.minZoom) {
       camera.maxZoom = Math.max(camera.minZoom + 0.5, 2.2);
     }
@@ -219,46 +466,45 @@ window.Game = window.Game || {};
     initializeWebGLResources();
     gl.viewport(0, 0, dom.canvas.width, dom.canvas.height);
     updateZoomLimits();
-    centerCamera();
     State.render.needsWorldRedraw = true;
   }
 
   function pickTile(x, y) {
     const world = State.world;
     const guess = screenToGridFloat(x, y);
-    const baseRow = Math.round(guess.row);
-    const baseCol = Math.round(guess.col);
-    for (let row = Math.max(0, baseRow - 2); row <= Math.min(world.rows - 1, baseRow + 2); row++) {
-      for (let col = Math.max(0, baseCol - 2); col <= Math.min(world.cols - 1, baseCol + 2); col++) {
-        const pos = gridToScreen(row, col);
-        if (pointInRect(x, y, pos.x, pos.y)) return { row, col };
-      }
-    }
-    return null;
+    const row = Math.round(guess.row);
+    const col = Math.round(guess.col);
+    if (row < 0 || col < 0 || row >= world.rows || col >= world.cols) return null;
+    return { row, col };
   }
 
   function terrainColor(tile) {
     switch (tile.type) {
-      case 'grass': return '#5a9b5f';
-      case 'grass2': return '#6aaa6c';
-      case 'dirt': return '#a57b4e';
-      case 'dirtHill': return '#9a7348';
-      case 'stone': return '#8f949d';
-      case 'hillStone': return '#8a8e96';
-      case 'hillGrass': return '#6b965e';
-      case 'water': return '#4b79b4';
-      case 'road': return '#b99b68';
-      case 'forest': return '#3f7345';
-      case 'forestHill': return '#43684a';
-      case 'settlement': return '#b8b2a0';
-      default: return '#5a9b5f';
+      case "grass": return "#5a9b5f";
+      case "grass2": return "#6aaa6c";
+      case "dirt": return "#a57b4e";
+      case "dirtHill": return "#9a7348";
+      case "stone": return "#8f949d";
+      case "hillStone": return "#8a8e96";
+      case "hillGrass": return "#6b965e";
+      case "water": return "#4b79b4";
+      case "road": return "#b99b68";
+      case "forest": return "#3f7345";
+      case "forestHill": return "#43684a";
+      case "settlement": return "#b8b2a0";
+      default: return "#5a9b5f";
     }
   }
 
   function hexToNormalizedRgba(hex, alpha) {
-    const cleaned = hex.replace('#', '');
+    const cleaned = hex.replace("#", "");
     const value = parseInt(cleaned, 16);
-    return [((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255, alpha !== undefined ? alpha : 1];
+    return [
+      ((value >> 16) & 255) / 255,
+      ((value >> 8) & 255) / 255,
+      (value & 255) / 255,
+      alpha !== undefined ? alpha : 1
+    ];
   }
 
   function setCustomColor(gl, rgba) {
@@ -268,10 +514,19 @@ window.Game = window.Game || {};
   function useColorProgram(gl) {
     const render = State.render;
     gl.useProgram(render.colorProgram);
-    gl.uniform2f(render.colorResolutionLocation, State.dom.canvas.clientWidth, State.dom.canvas.clientHeight);
+    gl.uniformMatrix4fv(render.colorMatrixLocation, false, getProjectionData().viewProjection);
     gl.bindBuffer(gl.ARRAY_BUFFER, render.positionBuffer);
     gl.enableVertexAttribArray(render.colorPositionLocation);
-    gl.vertexAttribPointer(render.colorPositionLocation, 2, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribPointer(render.colorPositionLocation, 3, gl.FLOAT, false, 0, 0);
+  }
+
+  function useTextureProgram(gl) {
+    const render = State.render;
+    gl.useProgram(render.textureProgram);
+    gl.uniformMatrix4fv(render.textureMatrixLocation, false, getProjectionData().viewProjection);
+    gl.bindBuffer(gl.ARRAY_BUFFER, render.texturePositionBuffer);
+    gl.enableVertexAttribArray(render.texturePositionLocation);
+    gl.vertexAttribPointer(render.texturePositionLocation, 3, gl.FLOAT, false, 0, 0);
   }
 
   function drawTriangles(gl, vertices, rgba) {
@@ -279,7 +534,7 @@ window.Game = window.Game || {};
     gl.bindBuffer(gl.ARRAY_BUFFER, State.render.positionBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STREAM_DRAW);
     setCustomColor(gl, rgba);
-    gl.drawArrays(gl.TRIANGLES, 0, vertices.length / 2);
+    gl.drawArrays(gl.TRIANGLES, 0, vertices.length / 3);
   }
 
   function drawLineLoop(gl, vertices, rgba) {
@@ -287,7 +542,7 @@ window.Game = window.Game || {};
     gl.bindBuffer(gl.ARRAY_BUFFER, State.render.positionBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STREAM_DRAW);
     setCustomColor(gl, rgba);
-    gl.drawArrays(gl.LINE_LOOP, 0, vertices.length / 2);
+    gl.drawArrays(gl.LINE_LOOP, 0, vertices.length / 3);
   }
 
   function drawLines(gl, vertices, rgba) {
@@ -296,123 +551,234 @@ window.Game = window.Game || {};
     gl.bindBuffer(gl.ARRAY_BUFFER, State.render.positionBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STREAM_DRAW);
     setCustomColor(gl, rgba);
-    gl.drawArrays(gl.LINES, 0, vertices.length / 2);
+    gl.drawArrays(gl.LINES, 0, vertices.length / 3);
   }
 
-  function drawEllipse(gl, cx, cy, radiusX, radiusY, rgba, segments) {
+  function drawEllipse2D(gl, cx, cy, radiusX, radiusY, rgba, segments) {
     const count = Math.max(12, segments || 24);
     const vertices = [];
     for (let i = 0; i < count; i++) {
       const a0 = (i / count) * Math.PI * 2;
       const a1 = ((i + 1) / count) * Math.PI * 2;
-      vertices.push(cx, cy, cx + Math.cos(a0) * radiusX, cy + Math.sin(a0) * radiusY, cx + Math.cos(a1) * radiusX, cy + Math.sin(a1) * radiusY);
+      vertices.push(
+        cx, cy,
+        cx + Math.cos(a0) * radiusX, cy + Math.sin(a0) * radiusY,
+        cx + Math.cos(a1) * radiusX, cy + Math.sin(a1) * radiusY
+      );
     }
-    drawTriangles(gl, vertices, rgba);
+
+    const triangles3D = [];
+    for (let i = 0; i < vertices.length; i += 2) {
+      triangles3D.push(vertices[i], vertices[i + 1], 0);
+    }
+    useColorProgramScreenSpace(gl);
+    gl.bindBuffer(gl.ARRAY_BUFFER, State.render.positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(triangles3D), gl.STREAM_DRAW);
+    setCustomColor(gl, rgba);
+    gl.drawArrays(gl.TRIANGLES, 0, triangles3D.length / 3);
   }
 
-  function drawCapsule(gl, x1, y1, x2, y2, radius, rgba) {
-    const dx = x2 - x1, dy = y2 - y1, length = Math.hypot(dx, dy);
-    if (length < 0.0001) { drawEllipse(gl, x1, y1, radius, radius, rgba, 20); return; }
-    const nx = -dy / length, ny = dx / length;
-    drawTriangles(gl, [
-      x1 + nx * radius, y1 + ny * radius,
-      x1 - nx * radius, y1 - ny * radius,
-      x2 + nx * radius, y2 + ny * radius,
-      x2 + nx * radius, y2 + ny * radius,
-      x1 - nx * radius, y1 - ny * radius,
-      x2 - nx * radius, y2 - ny * radius
-    ], rgba);
-    drawEllipse(gl, x1, y1, radius, radius, rgba, 20);
-    drawEllipse(gl, x2, y2, radius, radius, rgba, 20);
+  function useColorProgramScreenSpace(gl) {
+    const render = State.render;
+    gl.useProgram(render.colorProgram);
+    gl.uniformMatrix4fv(render.colorMatrixLocation, false, getScreenSpaceMatrix());
+    gl.bindBuffer(gl.ARRAY_BUFFER, render.positionBuffer);
+    gl.enableVertexAttribArray(render.colorPositionLocation);
+    gl.vertexAttribPointer(render.colorPositionLocation, 3, gl.FLOAT, false, 0, 0);
   }
 
-  function getRectOutlineVertices(cx, cy, tileWidth, tileHeight) {
-    const halfW = tileWidth / 2;
-    const halfH = tileHeight / 2;
+  function getScreenSpaceMatrix() {
+    const w = Math.max(1, State.dom.canvas.clientWidth);
+    const h = Math.max(1, State.dom.canvas.clientHeight);
+    return new Float32Array([
+      2 / w, 0, 0, 0,
+      0, -2 / h, 0, 0,
+      0, 0, 1, 0,
+      -1, 1, 0, 1
+    ]);
+  }
+
+  function drawCapsule2D(gl, x1, y1, x2, y2, radius, rgba) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const length = Math.hypot(dx, dy);
+    if (length < EPSILON) {
+      drawEllipse2D(gl, x1, y1, radius, radius, rgba, 20);
+      return;
+    }
+
+    const nx = -dy / length;
+    const ny = dx / length;
+    const vertices = [
+      x1 + nx * radius, y1 + ny * radius, 0,
+      x1 - nx * radius, y1 - ny * radius, 0,
+      x2 + nx * radius, y2 + ny * radius, 0,
+      x2 + nx * radius, y2 + ny * radius, 0,
+      x1 - nx * radius, y1 - ny * radius, 0,
+      x2 - nx * radius, y2 - ny * radius, 0
+    ];
+    useColorProgramScreenSpace(gl);
+    gl.bindBuffer(gl.ARRAY_BUFFER, State.render.positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STREAM_DRAW);
+    setCustomColor(gl, rgba);
+    gl.drawArrays(gl.TRIANGLES, 0, vertices.length / 3);
+    drawEllipse2D(gl, x1, y1, radius, radius, rgba, 20);
+    drawEllipse2D(gl, x2, y2, radius, radius, rgba, 20);
+  }
+
+  function getRectOutlineVertices3D(centerX, centerZ, width, depth, y) {
+    const halfW = width / 2;
+    const halfD = depth / 2;
     return [
-      cx - halfW, cy - halfH,
-      cx + halfW, cy - halfH,
-      cx + halfW, cy + halfH,
-      cx - halfW, cy + halfH
+      centerX - halfW, y, centerZ - halfD,
+      centerX + halfW, y, centerZ - halfD,
+      centerX + halfW, y, centerZ + halfD,
+      centerX - halfW, y, centerZ + halfD
     ];
   }
 
-  function drawSelectionMarker(gl, pos, tileWidth, tileHeight) {
-    drawLineLoop(gl, getRectOutlineVertices(pos.x, pos.y, tileWidth * 0.62, tileHeight * 0.62), [0.97, 0.87, 0.48, 1]);
+  function drawSelectionMarker(gl, row, col, tileWidth, tileHeight) {
+    const pos = gridToWorld(row, col, tileWidth);
+    drawLineLoop(gl, getRectOutlineVertices3D(pos.x, pos.z, tileWidth * 0.62, tileHeight * 0.62, MARKER_Y), [0.97, 0.87, 0.48, 1]);
   }
 
-  function drawHoverMarker(gl, pos, tileWidth, tileHeight) {
-    drawLineLoop(gl, getRectOutlineVertices(pos.x, pos.y, tileWidth * 0.92, tileHeight * 0.92), [0.97, 0.87, 0.48, 0.65]);
+  function drawHoverMarker(gl, row, col, tileWidth, tileHeight) {
+    const pos = gridToWorld(row, col, tileWidth);
+    drawLineLoop(gl, getRectOutlineVertices3D(pos.x, pos.z, tileWidth * 0.92, tileHeight * 0.92, MARKER_Y), [0.97, 0.87, 0.48, 0.65]);
   }
 
-  function drawArrowMarker(gl, fromPos, toPos, tileWidth, tileHeight) {
+  function drawArrowMarker(gl, fromRow, fromCol, toRow, toCol, tileWidth, tileHeight) {
+    const fromPos = gridToWorld(fromRow, fromCol, tileWidth);
+    const toPos = gridToWorld(toRow, toCol, tileWidth);
     const dx = toPos.x - fromPos.x;
-    const dy = toPos.y - fromPos.y;
-    const length = Math.hypot(dx, dy) || 1;
-    const ux = dx / length, uy = dy / length;
-    const px = -uy, py = ux;
+    const dz = toPos.z - fromPos.z;
+    const length = Math.hypot(dx, dz) || 1;
+    const ux = dx / length;
+    const uz = dz / length;
+    const px = -uz;
+    const pz = ux;
     const bodyLength = tileHeight * 0.95;
     const headLength = tileHeight * 0.55;
     const bodyHalf = tileHeight * 0.14;
     const headHalf = tileHeight * 0.28;
-    const sx = fromPos.x, sy = fromPos.y;
-    const bx = sx + ux * bodyLength, by = sy + uy * bodyLength;
-    const hx = bx + ux * headLength, hy = by + uy * headLength;
+    const sx = fromPos.x;
+    const sz = fromPos.z;
+    const bx = sx + ux * bodyLength;
+    const bz = sz + uz * bodyLength;
+    const hx = bx + ux * headLength;
+    const hz = bz + uz * headLength;
+    const y = MARKER_Y;
 
     drawTriangles(gl, [
-      sx + px * bodyHalf, sy + py * bodyHalf,
-      sx - px * bodyHalf, sy - py * bodyHalf,
-      bx + px * bodyHalf, by + py * bodyHalf,
-      bx + px * bodyHalf, by + py * bodyHalf,
-      sx - px * bodyHalf, sy - py * bodyHalf,
-      bx - px * bodyHalf, by - py * bodyHalf
+      sx + px * bodyHalf, y, sz + pz * bodyHalf,
+      sx - px * bodyHalf, y, sz - pz * bodyHalf,
+      bx + px * bodyHalf, y, bz + pz * bodyHalf,
+      bx + px * bodyHalf, y, bz + pz * bodyHalf,
+      sx - px * bodyHalf, y, sz - pz * bodyHalf,
+      bx - px * bodyHalf, y, bz - pz * bodyHalf
     ], [0.39, 0.07, 0.18, 0.72]);
 
     drawTriangles(gl, [
-      bx + px * headHalf, by + py * headHalf,
-      bx - px * headHalf, by - py * headHalf,
-      hx, hy
+      bx + px * headHalf, y, bz + pz * headHalf,
+      bx - px * headHalf, y, bz - pz * headHalf,
+      hx, y, hz
     ], [0.57, 0.13, 0.27, 0.94]);
   }
 
   function drawPreviewRoute(gl, path, metrics) {
     if (!path || path.length < 2) return;
     for (let i = 0; i < path.length - 1; i++) {
-      drawArrowMarker(gl, gridToScreen(path[i].row, path[i].col), gridToScreen(path[i + 1].row, path[i + 1].col), metrics.tileWidth, metrics.tileHeight);
+      drawArrowMarker(gl, path[i].row, path[i].col, path[i + 1].row, path[i + 1].col, metrics.tileWidth, metrics.tileHeight);
     }
   }
 
-  function drawPlayer(gl, pos, tileWidth, tileHeight) {
-    const centerX = pos.x, groundY = pos.y, unit = tileHeight * 0.36;
-    const white = [0.93, 0.94, 0.96, 1], mid = [0.82, 0.84, 0.88, 1], dark = [0.58, 0.61, 0.68, 1], shadow = [0.16, 0.24, 0.16, 0.18], softShade = [0.74, 0.76, 0.82, 0.32], outline = [0.34, 0.36, 0.42, 0.50];
-    drawEllipse(gl, centerX + unit * 0.5, groundY + unit * 0.2, unit * 1.7, unit * 0.58, shadow, 32);
-    const pelvisY = groundY - unit * 2.2, waistY = pelvisY - unit * 0.16, abdomenY = pelvisY - unit * 0.68, chestY = pelvisY - unit * 1.34, shoulderY = pelvisY - unit * 1.65, neckY = pelvisY - unit * 1.98, headY = pelvisY - unit * 2.64;
-    const leftHipX = centerX - unit * 0.36, rightHipX = centerX + unit * 0.36, kneeY = groundY - unit * 1.08, ankleY = groundY - unit * 0.16, leftKneeX = centerX - unit * 0.42, rightKneeX = centerX + unit * 0.42, leftAnkleX = centerX - unit * 0.32, rightAnkleX = centerX + unit * 0.32;
-    drawCapsule(gl, leftHipX, pelvisY + unit * 0.1, leftKneeX, kneeY, unit * 0.25, white);
-    drawCapsule(gl, rightHipX, pelvisY + unit * 0.1, rightKneeX, kneeY, unit * 0.25, white);
-    drawCapsule(gl, leftKneeX, kneeY, leftAnkleX, ankleY, unit * 0.2, white);
-    drawCapsule(gl, rightKneeX, kneeY, rightAnkleX, ankleY, unit * 0.2, white);
-    drawEllipse(gl, leftAnkleX, groundY + unit * 0.03, unit * 0.30, unit * 0.15, mid, 22);
-    drawEllipse(gl, rightAnkleX, groundY + unit * 0.03, unit * 0.30, unit * 0.15, mid, 22);
-    drawEllipse(gl, centerX, pelvisY + unit * 0.12, unit * 0.72, unit * 0.32, white, 24);
-    drawEllipse(gl, centerX, waistY, unit * 0.62, unit * 0.18, mid, 18);
-    drawEllipse(gl, centerX, abdomenY, unit * 0.78, unit * 0.46, white, 26);
-    drawEllipse(gl, centerX, chestY, unit * 0.98, unit * 0.78, white, 28);
-    drawEllipse(gl, centerX, shoulderY - unit * 0.04, unit * 0.72, unit * 0.22, mid, 18);
-    drawEllipse(gl, centerX - unit * 0.80, shoulderY, unit * 0.30, unit * 0.24, white, 20);
-    drawEllipse(gl, centerX + unit * 0.80, shoulderY, unit * 0.30, unit * 0.24, white, 20);
-    const leftShoulderX = centerX - unit * 0.88, rightShoulderX = centerX + unit * 0.88, elbowY = pelvisY - unit * 0.78, wristY = groundY - unit * 1.24, leftElbowX = centerX - unit * 0.90, rightElbowX = centerX + unit * 0.90, leftWristX = centerX - unit * 0.84, rightWristX = centerX + unit * 0.84;
-    drawCapsule(gl, leftShoulderX, shoulderY + unit * 0.04, leftElbowX, elbowY, unit * 0.15, white);
-    drawCapsule(gl, rightShoulderX, shoulderY + unit * 0.04, rightElbowX, elbowY, unit * 0.15, white);
-    drawCapsule(gl, leftElbowX, elbowY, leftWristX, wristY, unit * 0.12, white);
-    drawCapsule(gl, rightElbowX, elbowY, rightWristX, wristY, unit * 0.12, white);
-    drawEllipse(gl, leftWristX, wristY + unit * 0.10, unit * 0.11, unit * 0.15, mid, 16);
-    drawEllipse(gl, rightWristX, wristY + unit * 0.10, unit * 0.11, unit * 0.15, mid, 16);
-    drawEllipse(gl, centerX, neckY, unit * 0.18, unit * 0.14, mid, 16);
-    drawEllipse(gl, centerX, headY, unit * 0.42, unit * 0.58, white, 28);
-    drawEllipse(gl, centerX + unit * 0.16, headY, unit * 0.10, unit * 0.40, dark, 16);
-    drawEllipse(gl, centerX + unit * 0.18, chestY + unit * 0.06, unit * 0.16, unit * 0.72, softShade, 16);
-    drawLineLoop(gl, [centerX - unit * 0.28, headY - unit * 0.46, centerX + unit * 0.10, headY - unit * 0.54, centerX + unit * 0.40, headY - unit * 0.06, centerX + unit * 0.16, headY + unit * 0.46, centerX - unit * 0.22, headY + unit * 0.44, centerX - unit * 0.42, headY - unit * 0.06], outline);
+
+  function getProjectedTileScreenSize(worldPos, tileWidth, tileHeight) {
+    const center = projectWorldToScreen(worldPos.x, WORLD_SURFACE_Y, worldPos.z);
+    const east = projectWorldToScreen(worldPos.x + tileWidth, WORLD_SURFACE_Y, worldPos.z);
+    const south = projectWorldToScreen(worldPos.x, WORLD_SURFACE_Y, worldPos.z + tileHeight);
+
+    const dx = Math.hypot(east.x - center.x, east.y - center.y);
+    const dz = Math.hypot(south.x - center.x, south.y - center.y);
+
+    return Math.max(1, Math.min(dx, dz));
+  }
+
+  function drawPlayer(gl, worldPos, tileWidth, tileHeight) {
+    const projected = projectWorldToScreen(worldPos.x, WORLD_SURFACE_Y, worldPos.z);
+    const screenTileSize = getProjectedTileScreenSize(worldPos, tileWidth, tileHeight);
+    const unit = Math.max(1.35, screenTileSize * 0.26);
+    const centerX = projected.x;
+    const groundY = projected.y;
+    const white = [0.93, 0.94, 0.96, 1];
+    const mid = [0.82, 0.84, 0.88, 1];
+    const dark = [0.58, 0.61, 0.68, 1];
+    const shadow = [0.16, 0.24, 0.16, 0.18];
+    const softShade = [0.74, 0.76, 0.82, 0.32];
+    const outline = [0.34, 0.36, 0.42, 0.50];
+
+    drawEllipse2D(gl, centerX + unit * 0.5, groundY + unit * 0.2, unit * 1.7, unit * 0.58, shadow, 32);
+    const pelvisY = groundY - unit * 2.2;
+    const waistY = pelvisY - unit * 0.16;
+    const abdomenY = pelvisY - unit * 0.68;
+    const chestY = pelvisY - unit * 1.34;
+    const shoulderY = pelvisY - unit * 1.65;
+    const neckY = pelvisY - unit * 1.98;
+    const headY = pelvisY - unit * 2.64;
+    const leftHipX = centerX - unit * 0.36;
+    const rightHipX = centerX + unit * 0.36;
+    const kneeY = groundY - unit * 1.08;
+    const ankleY = groundY - unit * 0.16;
+    const leftKneeX = centerX - unit * 0.42;
+    const rightKneeX = centerX + unit * 0.42;
+    const leftAnkleX = centerX - unit * 0.32;
+    const rightAnkleX = centerX + unit * 0.32;
+
+    drawCapsule2D(gl, leftHipX, pelvisY + unit * 0.1, leftKneeX, kneeY, unit * 0.25, white);
+    drawCapsule2D(gl, rightHipX, pelvisY + unit * 0.1, rightKneeX, kneeY, unit * 0.25, white);
+    drawCapsule2D(gl, leftKneeX, kneeY, leftAnkleX, ankleY, unit * 0.2, white);
+    drawCapsule2D(gl, rightKneeX, kneeY, rightAnkleX, ankleY, unit * 0.2, white);
+    drawEllipse2D(gl, leftAnkleX, groundY + unit * 0.03, unit * 0.30, unit * 0.15, mid, 22);
+    drawEllipse2D(gl, rightAnkleX, groundY + unit * 0.03, unit * 0.30, unit * 0.15, mid, 22);
+    drawEllipse2D(gl, centerX, pelvisY + unit * 0.12, unit * 0.72, unit * 0.32, white, 24);
+    drawEllipse2D(gl, centerX, waistY, unit * 0.62, unit * 0.18, mid, 18);
+    drawEllipse2D(gl, centerX, abdomenY, unit * 0.78, unit * 0.46, white, 26);
+    drawEllipse2D(gl, centerX, chestY, unit * 0.98, unit * 0.78, white, 28);
+    drawEllipse2D(gl, centerX, shoulderY - unit * 0.04, unit * 0.72, unit * 0.22, mid, 18);
+    drawEllipse2D(gl, centerX - unit * 0.80, shoulderY, unit * 0.30, unit * 0.24, white, 20);
+    drawEllipse2D(gl, centerX + unit * 0.80, shoulderY, unit * 0.30, unit * 0.24, white, 20);
+    const leftShoulderX = centerX - unit * 0.88;
+    const rightShoulderX = centerX + unit * 0.88;
+    const elbowY = pelvisY - unit * 0.78;
+    const wristY = groundY - unit * 1.24;
+    const leftElbowX = centerX - unit * 0.90;
+    const rightElbowX = centerX + unit * 0.90;
+    const leftWristX = centerX - unit * 0.84;
+    const rightWristX = centerX + unit * 0.84;
+    drawCapsule2D(gl, leftShoulderX, shoulderY + unit * 0.04, leftElbowX, elbowY, unit * 0.15, white);
+    drawCapsule2D(gl, rightShoulderX, shoulderY + unit * 0.04, rightElbowX, elbowY, unit * 0.15, white);
+    drawCapsule2D(gl, leftElbowX, elbowY, leftWristX, wristY, unit * 0.12, white);
+    drawCapsule2D(gl, rightElbowX, elbowY, rightWristX, wristY, unit * 0.12, white);
+    drawEllipse2D(gl, leftWristX, wristY + unit * 0.10, unit * 0.11, unit * 0.15, mid, 16);
+    drawEllipse2D(gl, rightWristX, wristY + unit * 0.10, unit * 0.11, unit * 0.15, mid, 16);
+    drawEllipse2D(gl, centerX, neckY, unit * 0.18, unit * 0.14, mid, 16);
+    drawEllipse2D(gl, centerX, headY, unit * 0.42, unit * 0.58, white, 28);
+    drawEllipse2D(gl, centerX + unit * 0.16, headY, unit * 0.10, unit * 0.40, dark, 16);
+    drawEllipse2D(gl, centerX + unit * 0.18, chestY + unit * 0.06, unit * 0.16, unit * 0.72, softShade, 16);
+
+    const outlineVertices = [
+      centerX - unit * 0.28, headY - unit * 0.46, 0,
+      centerX + unit * 0.10, headY - unit * 0.54, 0,
+      centerX + unit * 0.40, headY - unit * 0.06, 0,
+      centerX + unit * 0.16, headY + unit * 0.46, 0,
+      centerX - unit * 0.22, headY + unit * 0.44, 0,
+      centerX - unit * 0.42, headY - unit * 0.06, 0
+    ];
+    useColorProgramScreenSpace(gl);
+    gl.bindBuffer(gl.ARRAY_BUFFER, State.render.positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(outlineVertices), gl.STREAM_DRAW);
+    setCustomColor(gl, outline);
+    gl.drawArrays(gl.LINE_LOOP, 0, outlineVertices.length / 3);
   }
 
   function getBackgroundResolution(cols, rows) {
@@ -432,11 +798,11 @@ window.Game = window.Game || {};
     if (!world || !world.terrain || !world.terrain.length) return;
 
     const resolution = getBackgroundResolution(world.cols, world.rows);
-    const canvas = document.createElement('canvas');
+    const canvas = document.createElement("canvas");
     canvas.width = resolution.width;
     canvas.height = resolution.height;
 
-    const ctx = canvas.getContext('2d', { alpha: false });
+    const ctx = canvas.getContext("2d", { alpha: false });
     const cellWidth = canvas.width / Math.max(1, world.cols);
     const cellHeight = canvas.height / Math.max(1, world.rows);
 
@@ -479,18 +845,16 @@ window.Game = window.Game || {};
 
     const render = State.render;
     const world = State.world;
-    const left = State.camera.x;
-    const top = State.camera.y;
-    const right = left + world.cols * metrics.tileWidth;
-    const bottom = top + world.rows * metrics.tileHeight;
+    const width = world.cols * metrics.tileWidth;
+    const depth = world.rows * metrics.tileHeight;
 
     const positions = [
-      left, top,
-      right, top,
-      left, bottom,
-      left, bottom,
-      right, top,
-      right, bottom
+      0, WORLD_SURFACE_Y, 0,
+      width, WORLD_SURFACE_Y, 0,
+      0, WORLD_SURFACE_Y, depth,
+      0, WORLD_SURFACE_Y, depth,
+      width, WORLD_SURFACE_Y, 0,
+      width, WORLD_SURFACE_Y, depth
     ];
 
     const texCoords = [
@@ -502,8 +866,7 @@ window.Game = window.Game || {};
       1, 0
     ];
 
-    gl.useProgram(render.textureProgram);
-    gl.uniform2f(render.textureResolutionLocation, State.dom.canvas.clientWidth, State.dom.canvas.clientHeight);
+    useTextureProgram(gl);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, render.backgroundTexture);
     gl.uniform1i(render.textureSamplerLocation, 0);
@@ -511,7 +874,7 @@ window.Game = window.Game || {};
     gl.bindBuffer(gl.ARRAY_BUFFER, render.texturePositionBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STREAM_DRAW);
     gl.enableVertexAttribArray(render.texturePositionLocation);
-    gl.vertexAttribPointer(render.texturePositionLocation, 2, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribPointer(render.texturePositionLocation, 3, gl.FLOAT, false, 0, 0);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, render.textureCoordBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(texCoords), gl.STREAM_DRAW);
@@ -524,19 +887,17 @@ window.Game = window.Game || {};
   function drawGridOverlay(gl, metrics) {
     const world = State.world;
     const width = world.cols * metrics.tileWidth;
-    const height = world.rows * metrics.tileHeight;
-    const left = State.camera.x;
-    const top = State.camera.y;
+    const depth = world.rows * metrics.tileHeight;
     const lineVertices = [];
 
     for (let col = 0; col <= world.cols; col++) {
-      const x = left + col * metrics.tileWidth;
-      lineVertices.push(x, top, x, top + height);
+      const x = col * metrics.tileWidth;
+      lineVertices.push(x, GRID_OVERLAY_Y, 0, x, GRID_OVERLAY_Y, depth);
     }
 
     for (let row = 0; row <= world.rows; row++) {
-      const y = top + row * metrics.tileHeight;
-      lineVertices.push(left, y, left + width, y);
+      const z = row * metrics.tileHeight;
+      lineVertices.push(0, GRID_OVERLAY_Y, z, width, GRID_OVERLAY_Y, z);
     }
 
     drawLines(gl, lineVertices, [0.12, 0.17, 0.21, 0.55]);
@@ -551,40 +912,28 @@ window.Game = window.Game || {};
     if (!gl || (!render.colorProgram && !render.textureProgram) || !world.terrain.length) return;
     if (!force && !render.needsWorldRedraw) return;
 
+    gl.viewport(0, 0, dom.canvas.width, dom.canvas.height);
     gl.clearColor(render.clearColor[0], render.clearColor[1], render.clearColor[2], render.clearColor[3]);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     drawBackgroundQuad(gl, metrics);
     drawGridOverlay(gl, metrics);
 
-    if (world.hover) {
-      const hoverPos = gridToScreen(world.hover.row, world.hover.col);
-      drawHoverMarker(gl, hoverPos, metrics.tileWidth, metrics.tileHeight);
-    }
-
-    if (world.selected) {
-      const selectedPos = gridToScreen(world.selected.row, world.selected.col);
-      drawSelectionMarker(gl, selectedPos, metrics.tileWidth, metrics.tileHeight);
-    }
-
+    if (world.hover) drawHoverMarker(gl, world.hover.row, world.hover.col, metrics.tileWidth, metrics.tileHeight);
+    if (world.selected) drawSelectionMarker(gl, world.selected.row, world.selected.col, metrics.tileWidth, metrics.tileHeight);
     if (world.previewPath && world.previewPath.length > 1) drawPreviewRoute(gl, world.previewPath, metrics);
 
     if (world.player) {
       const playerPos = getPlayerWorldPosition();
-      drawPlayer(gl, { x: playerPos.x + State.camera.x, y: playerPos.y + State.camera.y }, metrics.tileWidth, metrics.tileHeight);
+      drawPlayer(gl, playerPos, metrics.tileWidth, metrics.tileHeight);
     }
 
     render.needsWorldRedraw = false;
   }
 
   function drawTile(ctx, x, y, tileWidth, tileHeight, color) {
-    const vertices = getRectOutlineVertices(x, y, tileWidth, tileHeight);
-    ctx.beginPath();
-    ctx.moveTo(vertices[0], vertices[1]);
-    for (let i = 2; i < vertices.length; i += 2) ctx.lineTo(vertices[i], vertices[i + 1]);
-    ctx.closePath();
     ctx.fillStyle = color;
-    ctx.fill();
+    ctx.fillRect(x - tileWidth / 2, y - tileHeight / 2, tileWidth, tileHeight);
   }
 
   window.Game.Renderer = {

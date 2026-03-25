@@ -14,81 +14,81 @@ window.Game = window.Game || {};
     Renderer.markDirty(false, true);
   }
 
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
   function getMinimapLayout() {
     const world = State.world;
     const dom = State.dom;
     const width = dom.minimap.clientWidth;
     const height = dom.minimap.clientHeight;
-    const isPortraitMobile = window.innerWidth <= 960 && window.innerHeight > window.innerWidth;
-    const padding = isPortraitMobile
-      ? Math.max(3, Math.min(8, Math.floor(Math.min(width, height) * 0.03)))
-      : Math.max(10, Math.min(18, Math.floor(Math.min(width, height) * 0.06)));
-
-    const maxTileFromWidth = Math.max(3, (width - padding * 2) / Math.max(1, world.cols));
-
-    const probeMetrics = Renderer.getHexMetrics(10);
-    const tileRatio = probeMetrics.tileHeight / probeMetrics.tileWidth;
-    const maxTileFromHeight = Math.max(3, (height - padding * 2) / Math.max(1, world.rows * tileRatio));
-
-    const fillFactor = isPortraitMobile ? 0.98 : 0.88;
-    const miniTileWidth = Math.max(3, Math.min(12, Math.min(maxTileFromWidth, maxTileFromHeight) * fillFactor));
-    const metrics = Renderer.getHexMetrics(miniTileWidth);
-
-    const cornerCenters = [
-      Renderer.gridToScreen(0, 0, 0, 0, metrics.tileWidth),
-      Renderer.gridToScreen(0, world.cols - 1, 0, 0, metrics.tileWidth),
-      Renderer.gridToScreen(world.rows - 1, 0, 0, 0, metrics.tileWidth),
-      Renderer.gridToScreen(world.rows - 1, world.cols - 1, 0, 0, metrics.tileWidth)
-    ];
-
-    const minX = Math.min(...cornerCenters.map((p) => p.x - metrics.halfW));
-    const maxX = Math.max(...cornerCenters.map((p) => p.x + metrics.halfW));
-    const minY = Math.min(...cornerCenters.map((p) => p.y - metrics.halfH));
-    const maxY = Math.max(...cornerCenters.map((p) => p.y + metrics.halfH));
-
-    const worldPixelWidth = maxX - minX;
-    const worldPixelHeight = maxY - minY;
-    const originX = ((width - worldPixelWidth) / 2) - minX;
-    const originY = ((height - worldPixelHeight) / 2) - minY;
-
+    const padding = Math.max(8, Math.min(16, Math.floor(Math.min(width, height) * 0.08)));
+    const tileSize = Math.max(2, Math.min((width - padding * 2) / Math.max(1, world.cols), (height - padding * 2) / Math.max(1, world.rows)));
+    const mapWidth = world.cols * tileSize;
+    const mapHeight = world.rows * tileSize;
+    const originX = (width - mapWidth) / 2;
+    const originY = (height - mapHeight) / 2;
     return {
       width,
       height,
-      miniTileWidth: metrics.tileWidth,
-      miniTileHeight: metrics.tileHeight,
       originX,
       originY,
-      metrics
+      miniTileWidth: tileSize,
+      miniTileHeight: tileSize,
+      mapWidth,
+      mapHeight
+    };
+  }
+
+  function gridToMinimap(row, col, layout) {
+    return {
+      x: layout.originX + (col + 0.5) * layout.miniTileWidth,
+      y: layout.originY + (row + 0.5) * layout.miniTileHeight
+    };
+  }
+
+  function worldToMinimap(worldX, worldZ, layout) {
+    const tileWidth = State.world.tileWidth || 1;
+    const tileHeight = tileWidth;
+    const col = worldX / tileWidth - 0.5;
+    const row = worldZ / tileHeight - 0.5;
+    return {
+      x: layout.originX + (col + 0.5) * layout.miniTileWidth,
+      y: layout.originY + (row + 0.5) * layout.miniTileHeight
     };
   }
 
   function screenToGridOnMinimap(x, y, layout) {
-    const guess = Renderer.screenToGridFloat(x, y, layout.originX, layout.originY, layout.miniTileWidth);
-    const baseRow = Math.round(guess.row);
-    const baseCol = Math.round(guess.col);
-    for (let row = Math.max(0, baseRow - 2); row <= Math.min(State.world.rows - 1, baseRow + 2); row++) {
-      for (let col = Math.max(0, baseCol - 2); col <= Math.min(State.world.cols - 1, baseCol + 2); col++) {
-        const pos = Renderer.gridToScreen(row, col, layout.originX, layout.originY, layout.miniTileWidth);
-        if (Renderer.pointInHex(x, y, pos.x, pos.y, layout.miniTileWidth)) return { row, col };
-      }
-    }
-    return null;
+    const col = Math.floor((x - layout.originX) / layout.miniTileWidth);
+    const row = Math.floor((y - layout.originY) / layout.miniTileHeight);
+    if (row < 0 || col < 0 || row >= State.world.rows || col >= State.world.cols) return null;
+    return { row, col };
   }
 
   function drawViewportFrame(layout) {
     const ctx = State.dom.miniCtx;
     const canvas = State.dom.canvas;
-    const corners = [
+    const worldCorners = [
       Renderer.screenToGridFloat(0, 0),
       Renderer.screenToGridFloat(canvas.clientWidth, 0),
       Renderer.screenToGridFloat(canvas.clientWidth, canvas.clientHeight),
       Renderer.screenToGridFloat(0, canvas.clientHeight)
-    ].map((p) => Renderer.gridToScreen(p.row, p.col, layout.originX, layout.originY, layout.miniTileWidth));
+    ];
+
+    const corners = worldCorners.map((p) => {
+      const clampedRow = clamp(p.row, 0, State.world.rows - 1);
+      const clampedCol = clamp(p.col, 0, State.world.cols - 1);
+      return {
+        x: layout.originX + (clampedCol + 0.5) * layout.miniTileWidth,
+        y: layout.originY + (clampedRow + 0.5) * layout.miniTileHeight
+      };
+    });
 
     ctx.save();
-    ctx.strokeStyle = "#ff4d4f";
+    ctx.strokeStyle = '#ff4d4f';
     ctx.lineWidth = 2;
-    ctx.fillStyle = "rgba(255, 77, 79, 0.10)";
+    ctx.fillStyle = 'rgba(255, 77, 79, 0.10)';
     ctx.beginPath();
     ctx.moveTo(corners[0].x, corners[0].y);
     for (let i = 1; i < corners.length; i++) ctx.lineTo(corners[i].x, corners[i].y);
@@ -105,32 +105,35 @@ window.Game = window.Game || {};
     if (!force && !State.render.needsMinimapRedraw) return;
 
     const layout = getMinimapLayout();
-    dom.miniCtx.clearRect(0, 0, layout.width, layout.height);
+    const ctx = dom.miniCtx;
+    ctx.clearRect(0, 0, layout.width, layout.height);
 
     for (let row = 0; row < world.rows; row++) {
       for (let col = 0; col < world.cols; col++) {
-        const pos = Renderer.gridToScreen(row, col, layout.originX, layout.originY, layout.miniTileWidth);
-        Renderer.drawTile(dom.miniCtx, pos.x, pos.y, layout.miniTileWidth, layout.miniTileHeight, Renderer.terrainColor(world.terrain[row][col]));
+        const x = layout.originX + col * layout.miniTileWidth;
+        const y = layout.originY + row * layout.miniTileHeight;
+        ctx.fillStyle = Renderer.terrainColor(world.terrain[row][col]);
+        ctx.fillRect(x, y, layout.miniTileWidth + 0.5, layout.miniTileHeight + 0.5);
       }
     }
 
     drawViewportFrame(layout);
 
-    const playerPos = Renderer.gridToScreen(world.player.row, world.player.col, layout.originX, layout.originY, layout.miniTileWidth);
-    dom.miniCtx.beginPath();
-    dom.miniCtx.arc(playerPos.x, playerPos.y, Math.max(2, layout.miniTileWidth * 0.12), 0, Math.PI * 2);
-    dom.miniCtx.fillStyle = "#f4f7fb";
-    dom.miniCtx.fill();
-    dom.miniCtx.strokeStyle = "#11151c";
-    dom.miniCtx.lineWidth = 1;
-    dom.miniCtx.stroke();
+    const playerPos = gridToMinimap(world.player.row, world.player.col, layout);
+    ctx.beginPath();
+    ctx.arc(playerPos.x, playerPos.y, Math.max(2, layout.miniTileWidth * 0.35), 0, Math.PI * 2);
+    ctx.fillStyle = '#f4f7fb';
+    ctx.fill();
+    ctx.strokeStyle = '#11151c';
+    ctx.lineWidth = 1;
+    ctx.stroke();
 
     State.render.needsMinimapRedraw = false;
   }
 
   function bindMinimapEvents() {
     const dom = State.dom;
-    dom.minimap.addEventListener("click", (event) => {
+    dom.minimap.addEventListener('click', (event) => {
       const rect = dom.minimap.getBoundingClientRect();
       const x = event.clientX - rect.left;
       const y = event.clientY - rect.top;
