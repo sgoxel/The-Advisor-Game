@@ -343,6 +343,124 @@ window.Game = window.Game || {};
     ];
   }
 
+
+  function adjustSaturationContrast(rgb, saturation, contrast) {
+    const sat = saturation === undefined ? 1 : saturation;
+    const con = contrast === undefined ? 1 : contrast;
+    const r = rgb[0] / 255, g = rgb[1] / 255, b = rgb[2] / 255;
+    const gray = r * 0.299 + g * 0.587 + b * 0.114;
+    let rr = gray + (r - gray) * sat;
+    let gg = gray + (g - gray) * sat;
+    let bb = gray + (b - gray) * sat;
+    rr = ((rr - 0.5) * con) + 0.5;
+    gg = ((gg - 0.5) * con) + 0.5;
+    bb = ((bb - 0.5) * con) + 0.5;
+    return [
+      Math.round(Utils.clamp(rr, 0, 1) * 255),
+      Math.round(Utils.clamp(gg, 0, 1) * 255),
+      Math.round(Utils.clamp(bb, 0, 1) * 255)
+    ];
+  }
+
+  function cloneCells(cells) {
+    return cells.map((c) => c ? c.slice() : c);
+  }
+
+  function getNeighborCellColor(neighbor, side, gx, gy, g) {
+    if (!neighbor.visual || !neighbor.visual.cells || neighbor.visual.gridSize <= 1) {
+      return (neighbor.visual && neighbor.visual.base) ? neighbor.visual.base.slice() : [128, 128, 128];
+    }
+
+    const ng = neighbor.visual.gridSize;
+    const nx = Utils.clamp(Math.round((gx / Math.max(1, g - 1)) * Math.max(0, ng - 1)), 0, Math.max(0, ng - 1));
+    const ny = Utils.clamp(Math.round((gy / Math.max(1, g - 1)) * Math.max(0, ng - 1)), 0, Math.max(0, ng - 1));
+
+    let sx = nx;
+    let sy = ny;
+
+    if (side === 'top') sy = ng - 1;
+    else if (side === 'bottom') sy = 0;
+    else if (side === 'left') sx = ng - 1;
+    else if (side === 'right') sx = 0;
+
+    return neighbor.visual.cells[(sy * ng) + sx].slice();
+  }
+
+  function applyTransitionBlending(grid) {
+    const world = State.world;
+    const amountPct = Utils.clamp(State.visual.transitionBlend || 0, 0, 100);
+    const amount = amountPct / 100;
+    if (amount <= 0.0001) return;
+
+    const dirs = [
+      { dr: -1, dc: 0, side: 'top' },
+      { dr: 1, dc: 0, side: 'bottom' },
+      { dr: 0, dc: -1, side: 'left' },
+      { dr: 0, dc: 1, side: 'right' }
+    ];
+
+    for (let row = 0; row < world.rows; row++) {
+      for (let col = 0; col < world.cols; col++) {
+        const tile = grid[row][col];
+        if (!tile.visual || tile.visual.gridSize <= 1 || !tile.visual.cells) continue;
+
+        const g = tile.visual.gridSize;
+        const originalCells = tile.visual.cells;
+        const newCells = cloneCells(originalCells);
+        const band = Math.max(1, Math.ceil(g * amount));
+        const blendScale = 0.2 + (amount * 1.1);
+
+        for (let gy = 0; gy < g; gy++) {
+          for (let gx = 0; gx < g; gx++) {
+            const idx = gy * g + gx;
+            const baseColor = originalCells[idx];
+            let totalWeight = 0;
+            let sumR = 0, sumG = 0, sumB = 0;
+
+            for (const d of dirs) {
+              const nr = row + d.dr;
+              const nc = col + d.dc;
+              if (!inBounds(nr, nc)) continue;
+
+              const neighbor = grid[nr][nc];
+              if (!neighbor.visual || neighbor.type === tile.type) continue;
+
+              let dist = -1;
+              if (d.side === 'top' && gy < band) dist = gy;
+              else if (d.side === 'bottom' && gy >= g - band) dist = (g - 1) - gy;
+              else if (d.side === 'left' && gx < band) dist = gx;
+              else if (d.side === 'right' && gx >= g - band) dist = (g - 1) - gx;
+              if (dist < 0) continue;
+
+              const edgeRatio = 1 - (dist / Math.max(1, band));
+              const smooth = edgeRatio * edgeRatio * (3 - 2 * edgeRatio);
+              const weight = Utils.clamp(smooth * blendScale, 0, 1);
+              if (weight <= 0.0001) continue;
+
+              const neighborColor = getNeighborCellColor(neighbor, d.side, gx, gy, g);
+              totalWeight += weight;
+              sumR += neighborColor[0] * weight;
+              sumG += neighborColor[1] * weight;
+              sumB += neighborColor[2] * weight;
+            }
+
+            if (totalWeight > 0) {
+              const cappedWeight = Utils.clamp(totalWeight, 0, 0.92);
+              const neighborAvg = [
+                Math.round(sumR / totalWeight),
+                Math.round(sumG / totalWeight),
+                Math.round(sumB / totalWeight)
+              ];
+              newCells[idx] = mixColor(baseColor, neighborAvg, cappedWeight);
+            }
+          }
+        }
+
+        tile.visual.cells = newCells;
+      }
+    }
+  }
+
   function buildNoiseCells(tileType, palette, baseColor, rng, visual) {
     const gridSize = Math.max(1, Math.round(visual.noiseSize || 1));
     if (gridSize <= 1) return { gridSize: 1, cells: [] };
@@ -378,13 +496,15 @@ window.Game = window.Game || {};
         const tile = grid[row][col];
         const rng = RNG.createSeededRandom(`${seed}|visual|${row}|${col}|${tile.type}`);
         const palette = buildVisualPalette(tile.type);
-        const base = jitterColor(palette.base, Math.max(2, Math.round(visual.colorVariance * 0.35)), rng, 28);
+        let base = jitterColor(palette.base, Math.max(2, Math.round(visual.colorVariance * 0.35)), rng, 28);
+        base = adjustSaturationContrast(base, visual.saturation, visual.contrast);
         const noise = buildNoiseCells(tile.type, palette, base, rng, visual);
+        const cells = noise.cells.map((c) => adjustSaturationContrast(c, visual.saturation, visual.contrast));
 
         tile.visual = {
           base,
           gridSize: noise.gridSize,
-          cells: noise.cells
+          cells
         };
       }
     }
@@ -444,6 +564,7 @@ window.Game = window.Game || {};
       addForest(grid, params, seed);
       addBaseSurface(grid, params, seed);
       assignTileVisuals(grid, seed);
+      applyTransitionBlending(grid);
       finalizeStats(grid, params);
 
       return {

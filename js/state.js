@@ -106,7 +106,10 @@ window.Game = window.Game || {};
       noiseSize: 6,
       noiseOpacity: 0.72,
       colorVariance: 18,
-      accentStrength: 35
+      accentStrength: 35,
+      transitionBlend: 45,
+      saturation: 1.0,
+      contrast: 1.0
     },
 
     render: {
