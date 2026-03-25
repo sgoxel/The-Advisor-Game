@@ -220,9 +220,15 @@
       </div>
     </main>
 
+    <nav class="mobile-panel-tabs" aria-label="Mobile panels">
+      <button class="mobile-tab-btn" type="button" data-panel-target="character-panel" data-i18n="character.title">Character</button>
+      <button class="mobile-tab-btn active" type="button" data-panel-target="dialog-panel" data-i18n="dialog.title">Dialogue</button>
+      <button class="mobile-tab-btn" type="button" data-panel-target="minimap-panel" data-i18n="minimap.title">Mini Map</button>
+    </nav>
+
     <!-- Bottom Ribbon -->
     <footer class="bottom-ribbon">
-      <section class="panel character-panel">
+      <section class="panel character-panel" data-panel-name="character-panel">
         <div class="panel-header" data-i18n="character.title">Character</div>
         <div class="character-body">
           <div class="thumbnail"></div>
@@ -237,7 +243,7 @@
         </div>
       </section>
 
-      <section class="panel dialog-panel">
+      <section class="panel dialog-panel active-panel" data-panel-name="dialog-panel">
         <div class="panel-header" data-i18n="dialog.title">Dialogue</div>
         <div class="dialog-text" id="dialogText" data-i18n="dialog.defaultText">
           SEED-based world generation is active. You can inspect
@@ -260,7 +266,7 @@
         </div>
       </section>
 
-      <section class="panel minimap-panel">
+      <section class="panel minimap-panel" data-panel-name="minimap-panel">
         <div class="panel-header" data-i18n="minimap.title">Mini Map</div>
         <canvas id="minimap"></canvas>
       </section>

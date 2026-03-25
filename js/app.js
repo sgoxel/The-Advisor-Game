@@ -82,6 +82,7 @@ window.Game = window.Game || {};
   }
 
   function resizeAll() {
+    UI.updateResponsiveLayout();
     Renderer.resizeCanvas();
     Minimap.resizeMinimap();
     Renderer.markDirty();

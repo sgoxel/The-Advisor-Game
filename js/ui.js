@@ -169,6 +169,33 @@ window.Game = window.Game || {};
     });
   }
 
+  function updateResponsiveLayout() {
+    const app = document.getElementById("app");
+    if (!app) return;
+    const isCompact = window.innerWidth <= 960;
+    const orientation = window.innerWidth > window.innerHeight ? "landscape" : "portrait";
+    app.dataset.viewport = isCompact ? "compact" : "desktop";
+    app.dataset.orientation = orientation;
+  }
+
+  function setActiveMobilePanel(panelName) {
+    const panels = document.querySelectorAll(".bottom-ribbon .panel[data-panel-name]");
+    const tabs = document.querySelectorAll(".mobile-tab-btn[data-panel-target]");
+    panels.forEach((panel) => panel.classList.toggle("active-panel", panel.dataset.panelName === panelName));
+    tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.panelTarget === panelName));
+    if (window.Game.Minimap && panelName === "minimap-panel") {
+      window.Game.Minimap.resizeMinimap();
+      window.Game.Minimap.renderMinimap();
+    }
+  }
+
+  function bindResponsivePanels() {
+    document.querySelectorAll(".mobile-tab-btn[data-panel-target]").forEach((btn) => {
+      btn.addEventListener("click", () => setActiveMobilePanel(btn.dataset.panelTarget));
+    });
+    updateResponsiveLayout();
+  }
+
   function bindUIEvents(onApplySettings, onLanguageChange) {
     const dom = State.dom;
     dom.mainMenuBtn.addEventListener("click", (event) => {
@@ -203,6 +230,7 @@ window.Game = window.Game || {};
     dom.settingsModal.addEventListener("click", (event) => { if (event.target === dom.settingsModal) closeSettingsModal(); });
     dom.logModal.addEventListener("click", (event) => { if (event.target === dom.logModal) closeLogModal(); });
     dom.applySettingsBtn.addEventListener("click", onApplySettings);
+    bindResponsivePanels();
   }
 
   window.Game.UI = {
@@ -220,6 +248,8 @@ window.Game = window.Game || {};
     applyCurrentLanguageToUI,
     openMainMenu,
     closeMainMenu,
-    toggleMainMenu
+    toggleMainMenu,
+    updateResponsiveLayout,
+    setActiveMobilePanel
   };
 })();
