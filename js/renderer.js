@@ -131,6 +131,40 @@ window.Game = window.Game || {};
 
   function centerCameraOnTile(row, col) { const pos = gridToScreen(row, col, 0, 0); centerCameraOnWorld(pos.x, pos.y); }
   function centerCamera() { const p = getPlayerWorldPosition(); centerCameraOnWorld(p.x, p.y); }
+  function calculateFitZoom(paddingRatio) {
+    const canvas = State.dom.canvas;
+    const world = State.world;
+    if (!canvas || !canvas.clientWidth || !canvas.clientHeight || !world.rows || !world.cols) return 1;
+
+    const padding = Math.max(24, Math.min(canvas.clientWidth, canvas.clientHeight) * (paddingRatio || 0.08));
+    const availableWidth = Math.max(1, canvas.clientWidth - padding * 2);
+    const availableHeight = Math.max(1, canvas.clientHeight - padding * 2);
+
+    const angleRad = (State.camera.pitchAngle || Config.DEFAULT_CAMERA_PITCH) * Math.PI / 180;
+    const baseRatio = Math.sin(angleRad);
+    const ratio = Math.max(0.38, Math.min(1.0, baseRatio * (State.camera.depthStrength || 1)));
+
+    const widthZoom = availableWidth / Math.max(1, (world.cols + world.rows) * 0.5 * world.tileWidth);
+    const heightZoom = availableHeight / Math.max(1, (world.cols + world.rows) * 0.5 * world.tileWidth * ratio);
+    return Math.max(0.08, Math.min(widthZoom, heightZoom));
+  }
+
+  function updateZoomLimits() {
+    const fitZoom = Number(calculateFitZoom(0.06).toFixed(3));
+    const camera = State.camera;
+    camera.minZoom = Math.min(1, fitZoom);
+    if (camera.maxZoom <= camera.minZoom) {
+      camera.maxZoom = Math.max(camera.minZoom + 0.5, 2.2);
+    }
+    if (camera.zoom < camera.minZoom) camera.zoom = camera.minZoom;
+  }
+
+  function fitCameraToWorld() {
+    updateZoomLimits();
+    State.camera.zoom = Math.max(State.camera.minZoom, Math.min(Config.DEFAULT_START_ZOOM || 0.8, State.camera.maxZoom));
+    centerCamera();
+    markDirty();
+  }
   function updateCameraFollow() { if (State.camera.followPlayer && State.world.player && State.world.player.moving) centerCamera(); }
 
   function resizeCanvas() {
@@ -145,6 +179,7 @@ window.Game = window.Game || {};
     }
     initializeWebGLResources();
     gl.viewport(0, 0, dom.canvas.width, dom.canvas.height);
+    updateZoomLimits();
     centerCamera();
     markDirty();
   }
@@ -383,6 +418,9 @@ window.Game = window.Game || {};
     getGridMetrics: getIsoMetrics,
     pointInHex: pointInDiamond,
     pointInDiamond,
-    updateCameraFollow
+    updateCameraFollow,
+    calculateFitZoom,
+    updateZoomLimits,
+    fitCameraToWorld
   };
 })();

@@ -30,7 +30,7 @@ window.Game.Locales.en = {
     "mana": "Mana"
   },
   "overlay": {
-    "instructionsHtml": "Left click: select tile<br />Drag: move camera<br />Arrow keys / WASD: navigate the map<br />Grid: diamond / straight isometric layout<br />Settings: inspect SEED-based topology and terrain parameters"
+    "instructionsHtml": "Left click: select tile<br />Drag: move camera<br />Arrow keys / WASD: navigate the map"
   },
   "character": {
     "title": "Character",

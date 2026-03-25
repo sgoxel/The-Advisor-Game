@@ -35,12 +35,16 @@ window.Game = window.Game || {};
     };
 
     const generated = Terrain.generateWorld(seed, cols, rows);
+    State.camera.zoom = Config.DEFAULT_START_ZOOM;
+    State.camera.x = world.player.col;
+    State.camera.y = world.player.row;
+
     world.terrain = generated.grid;
     world.params = generated.params;
 
     UI.syncSettingsInputs();
     UI.updateParamUI();
-    Renderer.centerCamera();
+    Renderer.fitCameraToWorld();
     Renderer.markDirty();
     UI.addLog(I18n.t("logs.worldRebuilt", { seed, cols, rows }));
   }
@@ -84,6 +88,7 @@ window.Game = window.Game || {};
   function resizeAll() {
     UI.updateResponsiveLayout();
     Renderer.resizeCanvas();
+    Renderer.updateZoomLimits();
     Minimap.resizeMinimap();
     Renderer.markDirty();
   }

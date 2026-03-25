@@ -145,7 +145,9 @@
 
     <!-- Top Ribbon -->
     <header class="ribbon">
-      <div class="top-left">
+      <div class="menu-scroll-arrow left hidden" id="topMenuScrollLeft" aria-hidden="true">◀</div>
+      <div class="top-left-scroll" id="topLeftScroll">
+        <div class="top-left">
         <div class="menu-dropdown">
           <button class="menu-btn" id="mainMenuBtn" type="button" aria-haspopup="true" aria-expanded="false" data-i18n="header.mainMenu">Main Menu</button>
           <div id="mainMenuDropdown" class="dropdown-panel hidden" role="menu" aria-labelledby="mainMenuBtn">
@@ -164,19 +166,22 @@
             <option value="tr">TR</option>
           </select>
         </label>
+        </div>
       </div>
+      <button class="menu-scroll-arrow right hidden" id="topMenuScrollRight" type="button" aria-label="Scroll menu right">▶</button>
 
       <div class="top-stats">
         <div class="resource-box">
-          <div class="label" data-i18n="stats.gold">Gold</div>
-          <div class="resource-value" id="goldValue">245</div>
+          <div class="stat-line">
+            <span class="label" data-i18n="stats.gold">Gold</span>
+            <span class="resource-value" id="goldValue">245</span>
+          </div>
         </div>
 
         <div class="stat-box">
-          <div class="label" data-i18n="stats.health">Health</div>
-          <div class="stat-top">
-            <span>%<span id="healthText">82</span></span>
-            <span>HP</span>
+          <div class="stat-line">
+            <span class="label" data-i18n="stats.health">Health</span>
+            <span class="stat-value" id="healthText">82</span>
           </div>
           <div class="bar">
             <div class="fill health" id="healthBar" style="width: 82%;"></div>
@@ -184,10 +189,9 @@
         </div>
 
         <div class="stat-box">
-          <div class="label" data-i18n="stats.stamina">Stamina</div>
-          <div class="stat-top">
-            <span>%<span id="staminaText">68</span></span>
-            <span>STA</span>
+          <div class="stat-line">
+            <span class="label" data-i18n="stats.stamina">Stamina</span>
+            <span class="stat-value" id="staminaText">68</span>
           </div>
           <div class="bar">
             <div class="fill stamina" id="staminaBar" style="width: 68%;"></div>
@@ -195,10 +199,9 @@
         </div>
 
         <div class="stat-box">
-          <div class="label" data-i18n="stats.mana">Mana</div>
-          <div class="stat-top">
-            <span>%<span id="manaText">54</span></span>
-            <span>MP</span>
+          <div class="stat-line">
+            <span class="label" data-i18n="stats.mana">Mana</span>
+            <span class="stat-value" id="manaText">54</span>
           </div>
           <div class="bar">
             <div class="fill mana" id="manaBar" style="width: 54%;"></div>
@@ -211,19 +214,28 @@
     <main id="center-area">
       <canvas id="gameCanvas"></canvas>
 
+      <button id="mobilePanelsToggle" class="mobile-panels-toggle" type="button" aria-label="Open bottom panels">⌄</button>
+
       <div class="center-overlay" data-i18n="overlay.instructionsHtml" data-i18n-html="true">
         Left click: select tile<br />
         Drag: move camera<br />
-        Arrow keys / WASD: navigate the map<br />
-        Grid: diamond / straight isometric layout<br />
-        Settings: inspect SEED-based topology and terrain parameters
+        Arrow keys / WASD: navigate the map
       </div>
     </main>
 
-    <nav class="mobile-panel-tabs" aria-label="Mobile panels">
-      <button class="mobile-tab-btn" type="button" data-panel-target="character-panel" data-i18n="character.title">Character</button>
-      <button class="mobile-tab-btn active" type="button" data-panel-target="dialog-panel" data-i18n="dialog.title">Dialogue</button>
-      <button class="mobile-tab-btn" type="button" data-panel-target="minimap-panel" data-i18n="minimap.title">Mini Map</button>
+    <nav class="mobile-panel-tabs" id="mobilePanelTabs" aria-label="Mobile panels">
+      <button class="mobile-tab-btn" type="button" data-panel-target="character-panel">
+        <span class="tab-icon" aria-hidden="true">👤</span>
+        <span class="tab-label" data-i18n="character.title">Character</span>
+      </button>
+      <button class="mobile-tab-btn active" type="button" data-panel-target="dialog-panel">
+        <span class="tab-icon" aria-hidden="true">💬</span>
+        <span class="tab-label" data-i18n="dialog.title">Dialogue</span>
+      </button>
+      <button class="mobile-tab-btn" type="button" data-panel-target="minimap-panel">
+        <span class="tab-icon" aria-hidden="true">🗺️</span>
+        <span class="tab-label" data-i18n="minimap.title">Mini Map</span>
+      </button>
     </nav>
 
     <!-- Bottom Ribbon -->

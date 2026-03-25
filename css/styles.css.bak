@@ -180,7 +180,7 @@ textarea {
 
 .resource-box,
 .stat-box {
-  min-height: 44px;
+  height: 44px;
   min-width: 126px;
   background: var(--panel-2);
   border: 1px solid var(--line);
@@ -189,7 +189,7 @@ textarea {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .resource-box .label,
@@ -200,31 +200,22 @@ textarea {
   letter-spacing: 0.8px;
 }
 
-.stat-line .label::after {
-  content: ":";
-  margin-left: 2px;
-}
-
-.stat-line {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.resource-value,
-.stat-value {
-  font-weight: 700;
-  font-size: 18px;
-  line-height: 1;
-}
-
 .resource-value {
   color: var(--gold);
+  font-weight: 700;
+  font-size: 18px;
 }
 
-.stat-box .stat-value {
-  color: var(--text);
+.stat-top {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  font-size: 13px;
+  gap: 0;
+}
+
+.stat-top span:last-child {
+  display: none;
 }
 
 .bar {
@@ -249,10 +240,6 @@ textarea {
   position: relative;
   overflow: hidden;
   min-height: 0;
-}
-
-#center-area.panel-toggle-up .mobile-panels-toggle {
-  bottom: 0;
 }
 
 #gameCanvas {
@@ -303,13 +290,13 @@ textarea {
 .mobile-panels-toggle {
   position: absolute;
   left: 50%;
-  bottom: 0;
+  bottom: 24px;
   transform: translateX(-50%);
-  width: 54px;
-  height: 54px;
+  width: 52px;
+  height: 52px;
   border: 1px solid rgba(255,255,255,0.12);
   border-radius: 999px;
-  background: rgba(11, 16, 24, 0.46);
+  background: rgba(11, 16, 24, 0.82);
   color: var(--text);
   font-size: 26px;
   line-height: 1;
@@ -428,12 +415,6 @@ textarea {
   align-items: center;
   min-height: 0;
   overflow: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.dialog-text::-webkit-scrollbar {
-  display: none;
 }
 
 .choices {
@@ -750,7 +731,7 @@ textarea {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    bottom: 0;
+    bottom: 92px;
   }
 
   .mobile-panel-tabs,
@@ -896,9 +877,9 @@ textarea {
 
   .bottom-ribbon {
     grid-template-columns: 1fr;
-    padding: 8px 12px 18px;
-    min-height: 420px;
-    max-height: none;
+    padding: 8px 12px 14px;
+    min-height: 300px;
+    max-height: min(46vh, 420px);
   }
 
   .bottom-ribbon .panel {
@@ -908,7 +889,7 @@ textarea {
 
   .bottom-ribbon .panel.active-panel {
     display: grid;
-    min-height: 410px;
+    min-height: 292px;
   }
 
   .choices,
@@ -927,17 +908,13 @@ textarea {
   }
 
   .dialog-panel {
-    grid-template-rows: auto auto auto;
-    align-content: start;
+    grid-template-rows: auto minmax(88px, 1fr) auto;
   }
 
   .dialog-text {
     font-size: 14px;
     padding: 12px 14px 10px;
     align-items: flex-start;
-    overflow: hidden;
-    height: auto;
-    min-height: 0;
   }
 
   .choices {
@@ -950,7 +927,7 @@ textarea {
   }
 
   .minimap-panel canvas {
-    min-height: 250px;
+    min-height: 220px;
   }
 
   .modal-overlay {
@@ -1053,13 +1030,13 @@ textarea {
   }
 
   .bottom-ribbon {
-    padding: 6px 10px 14px;
-    min-height: 440px;
-    max-height: none;
+    padding: 6px 10px 12px;
+    min-height: 320px;
+    max-height: min(48vh, 430px);
   }
 
   .bottom-ribbon .panel.active-panel {
-    min-height: 428px;
+    min-height: 308px;
   }
 
   .panel-header {
@@ -1104,6 +1081,3 @@ textarea {
 .dragging-scroll {
   cursor: grabbing;
 }
-
-.stat-value{margin-left:6px;font-weight:bold}
-.stat-percent{display:none}

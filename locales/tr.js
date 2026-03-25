@@ -30,7 +30,7 @@ window.Game.Locales.tr = {
     "mana": "Mana"
   },
   "overlay": {
-    "instructionsHtml": "Sol tık: tile seç<br />Sürükle: kamera gezintisi<br />Ok tuşları / WASD: haritada hareket<br />Izgara: diamond / düz izometrik düzen<br />Ayarlar: SEED tabanlı topoloji ve arazi parametreleri"
+    "instructionsHtml": "Sol tık: tile seç<br />Sürükle: kamera gezintisi<br />Ok tuşları / WASD: haritada hareket"
   },
   "character": {
     "title": "Karakter",

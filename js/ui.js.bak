@@ -148,8 +148,8 @@ window.Game = window.Game || {};
   function closeSettingsModal() { State.dom.settingsModal.classList.add("hidden"); addLog(I18n.t("logs.settingsClosed")); }
   function openLogModal() { State.dom.logModal.classList.remove("hidden"); addLog(I18n.t("logs.logOpened")); }
   function closeLogModal() { State.dom.logModal.classList.add("hidden"); addLog(I18n.t("logs.logClosed")); }
-  function updateDialogText(text) { State.dom.dialogText.textContent = text; syncDialogTextHeight(); }
-  function applyCurrentLanguageToUI() { I18n.applyTranslations(); updateParamUI(); renderLogs(); syncDialogTextHeight(); updateMobilePanelsToggle(); }
+  function updateDialogText(text) { State.dom.dialogText.textContent = text; }
+  function applyCurrentLanguageToUI() { I18n.applyTranslations(); updateParamUI(); renderLogs(); }
 
   function bindChoiceButtons() {
     document.querySelectorAll(".choice-btn").forEach((btn, index) => {
@@ -238,58 +238,6 @@ window.Game = window.Game || {};
     tabs.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  function isCompactPortraitLayout() {
-    return window.innerWidth <= 960 && window.innerHeight > window.innerWidth;
-  }
-
-  function syncDialogTextHeight() {
-    const dialogText = State.dom.dialogText;
-    if (!dialogText) return;
-
-    if (!isCompactPortraitLayout()) {
-      dialogText.style.height = "";
-      dialogText.style.minHeight = "";
-      return;
-    }
-
-    dialogText.style.height = "auto";
-    dialogText.style.minHeight = "0px";
-    const fullHeight = Math.ceil(dialogText.scrollHeight);
-    dialogText.style.height = `${fullHeight}px`;
-    dialogText.style.minHeight = `${fullHeight}px`;
-  }
-
-  function updateMobilePanelsToggle() {
-    const toggle = State.dom.mobilePanelsToggle;
-    const centerArea = document.getElementById("center-area");
-    const tabs = State.dom.mobilePanelTabs;
-    if (!toggle || !centerArea || !tabs) return;
-
-    if (!isCompactPortraitLayout()) {
-      toggle.textContent = "⌄";
-      toggle.setAttribute("aria-label", "Open bottom panels");
-      centerArea.classList.remove("panel-toggle-up");
-      return;
-    }
-
-    const tabsRect = tabs.getBoundingClientRect();
-    const hasScrolledDown = window.scrollY > 24;
-    const tabsReachedViewport = tabsRect.top <= window.innerHeight - 120;
-    const shouldPointUp = hasScrolledDown || tabsReachedViewport;
-    toggle.textContent = shouldPointUp ? "⌃" : "⌄";
-    toggle.setAttribute("aria-label", shouldPointUp ? "Scroll to top" : "Open bottom panels");
-    centerArea.classList.toggle("panel-toggle-up", shouldPointUp);
-  }
-
-  function handleMobilePanelsToggle() {
-    const shouldScrollUp = isCompactPortraitLayout() && window.scrollY > 24;
-    if (shouldScrollUp) {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      return;
-    }
-    scrollToMobilePanels();
-  }
-
   function updateResponsiveLayout() {
     const app = document.getElementById("app");
     if (!app) return;
@@ -299,8 +247,6 @@ window.Game = window.Game || {};
     app.dataset.orientation = orientation;
     app.dataset.mobilePanels = isCompact && orientation === "portrait" ? "below-fold" : "inline";
     updateTopMenuScrollButtons();
-    syncDialogTextHeight();
-    updateMobilePanelsToggle();
   }
 
   function setActiveMobilePanel(panelName) {
@@ -312,7 +258,6 @@ window.Game = window.Game || {};
       window.Game.Minimap.resizeMinimap();
       window.Game.Minimap.renderMinimap();
     }
-    window.setTimeout(syncDialogTextHeight, 0);
   }
 
   function bindResponsivePanels() {
@@ -320,12 +265,10 @@ window.Game = window.Game || {};
       btn.addEventListener("click", () => setActiveMobilePanel(btn.dataset.panelTarget));
     });
     if (State.dom.mobilePanelsToggle) {
-      State.dom.mobilePanelsToggle.addEventListener("click", handleMobilePanelsToggle);
+      State.dom.mobilePanelsToggle.addEventListener("click", scrollToMobilePanels);
     }
-    window.addEventListener("scroll", updateMobilePanelsToggle, { passive: true });
     bindTopMenuScroller();
     updateResponsiveLayout();
-    window.setTimeout(syncDialogTextHeight, 0);
   }
 
   function bindUIEvents(onApplySettings, onLanguageChange) {
@@ -384,8 +327,6 @@ window.Game = window.Game || {};
     updateResponsiveLayout,
     setActiveMobilePanel,
     updateTopMenuScrollButtons,
-    scrollToMobilePanels,
-    syncDialogTextHeight,
-    updateMobilePanelsToggle
+    scrollToMobilePanels
   };
 })();
