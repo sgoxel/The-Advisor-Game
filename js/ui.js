@@ -126,8 +126,39 @@ window.Game = window.Game || {};
     return State.dom.mainMenuDropdown && !State.dom.mainMenuDropdown.classList.contains("hidden");
   }
 
+  function positionMainMenuDropdown() {
+    const dropdown = State.dom.mainMenuDropdown;
+    const button = State.dom.mainMenuBtn;
+    if (!dropdown || !button) return;
+
+    const compactPortrait = window.innerWidth <= 960 && window.innerHeight > window.innerWidth;
+    if (!compactPortrait) {
+      dropdown.classList.remove("dropdown-fixed");
+      dropdown.style.top = "";
+      dropdown.style.left = "";
+      dropdown.style.width = "";
+      dropdown.style.minWidth = "";
+      return;
+    }
+
+    const rect = button.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const preferredWidth = Math.max(rect.width, 180);
+    const maxAllowedWidth = Math.max(180, viewportWidth - 16);
+    const width = Math.min(preferredWidth, maxAllowedWidth);
+    const left = Math.max(8, Math.min(rect.left, viewportWidth - width - 8));
+    const top = Math.min(rect.bottom + 6, window.innerHeight - 8);
+
+    dropdown.classList.add("dropdown-fixed");
+    dropdown.style.left = `${Math.round(left)}px`;
+    dropdown.style.top = `${Math.round(top)}px`;
+    dropdown.style.width = `${Math.round(width)}px`;
+    dropdown.style.minWidth = `${Math.round(width)}px`;
+  }
+
   function openMainMenu() {
     if (!State.dom.mainMenuDropdown) return;
+    positionMainMenuDropdown();
     State.dom.mainMenuDropdown.classList.remove("hidden");
     if (State.dom.mainMenuBtn) State.dom.mainMenuBtn.setAttribute("aria-expanded", "true");
   }
@@ -135,6 +166,11 @@ window.Game = window.Game || {};
   function closeMainMenu() {
     if (!State.dom.mainMenuDropdown) return;
     State.dom.mainMenuDropdown.classList.add("hidden");
+    State.dom.mainMenuDropdown.classList.remove("dropdown-fixed");
+    State.dom.mainMenuDropdown.style.top = "";
+    State.dom.mainMenuDropdown.style.left = "";
+    State.dom.mainMenuDropdown.style.width = "";
+    State.dom.mainMenuDropdown.style.minWidth = "";
     if (State.dom.mainMenuBtn) State.dom.mainMenuBtn.setAttribute("aria-expanded", "false");
   }
 
@@ -387,6 +423,17 @@ window.Game = window.Game || {};
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") closeMainMenu();
     });
+    window.addEventListener("resize", () => {
+      if (isMenuOpen()) positionMainMenuDropdown();
+    });
+    window.addEventListener("orientationchange", () => {
+      window.setTimeout(() => {
+        if (isMenuOpen()) positionMainMenuDropdown();
+      }, 30);
+    });
+    window.addEventListener("scroll", () => {
+      if (isMenuOpen()) positionMainMenuDropdown();
+    }, { passive: true });
     dom.settingsBtn.addEventListener("click", openSettingsModal);
     dom.cancelSettingsBtn.addEventListener("click", closeSettingsModal);
     dom.logBtn.addEventListener("click", openLogModal);

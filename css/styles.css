@@ -127,6 +127,15 @@ textarea {
   display: none !important;
 }
 
+.dropdown-panel.dropdown-fixed {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: auto;
+  z-index: 2000;
+  max-width: min(280px, calc(100vw - 16px));
+}
+
 .dropdown-item {
   width: 100%;
   min-height: 34px;
