@@ -7,7 +7,7 @@ HTML5 + WebGL Based Game Demo
 🌍 Theme
 
 Medieval + Fantasy Roleplaying & Strategy Game
-- Begin as a humble peasant and rise through the ranks: Knight → Lord → King → Emperor.
+- Begin as a humble peasant and rise through the ranks: Peasant → Villager → Squire → Knight → Baron → Duke → Lord → Prince → King → Emperor.
 - Unlike traditional RPGs, you won’t directly control armies or trade companies. Instead, your decisions shape the world, while AI-driven characters act independently.
 
 🧠 The King’s Advisor (Core Focus)
