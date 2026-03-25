@@ -24,11 +24,8 @@ window.Game = window.Game || {};
       ? Math.max(3, Math.min(8, Math.floor(Math.min(width, height) * 0.03)))
       : Math.max(10, Math.min(18, Math.floor(Math.min(width, height) * 0.06)));
 
-    const maxTileFromWidth = Math.max(3, ((width - padding * 2) * 2) / Math.max(2, world.cols + world.rows + 1));
-
-    const probeMetrics = Renderer.getHexMetrics(10);
-    const tileRatio = probeMetrics.tileHeight / probeMetrics.tileWidth;
-    const maxTileFromHeight = Math.max(3, ((height - padding * 2) * 2) / Math.max(2, (world.cols + world.rows + 1) * tileRatio));
+    const maxTileFromWidth = Math.max(3, (width - padding * 2) / Math.max(1, world.cols));
+    const maxTileFromHeight = Math.max(3, (height - padding * 2) / Math.max(1, world.rows));
 
     const fillFactor = isPortraitMobile ? 0.98 : 0.88;
     const miniTileWidth = Math.max(3, Math.min(12, Math.min(maxTileFromWidth, maxTileFromHeight) * fillFactor));
