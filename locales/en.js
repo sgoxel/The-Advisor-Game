@@ -25,7 +25,7 @@ window.Game.Locales.en = {
     "mana": "Mana"
   },
   "overlay": {
-    "instructionsHtml": "Left click: select tile<br />Drag: move camera<br />Arrow keys / WASD: navigate the map<br />Settings: inspect SEED-based topology and terrain parameters"
+    "instructionsHtml": "Left click: select tile<br />Drag: move camera<br />Arrow keys / WASD: navigate the map<br />Grid: diamond / straight isometric layout<br />Settings: inspect SEED-based topology and terrain parameters"
   },
   "character": {
     "title": "Character",
@@ -57,6 +57,8 @@ window.Game.Locales.en = {
     "seedCode": "SEED Code",
     "mapWidth": "Map Width",
     "mapHeight": "Map Height",
+    "cameraPitch": "Camera Pitch Angle",
+    "depthStrength": "Depth Strength",
     "streamCount": "Stream Count",
     "lake": "Lake",
     "hillCount": "Hill Count",

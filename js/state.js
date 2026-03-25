@@ -1,17 +1,6 @@
 /*
   FILE PURPOSE:
   Hold shared mutable runtime state for the whole application.
-
-  DEPENDENCIES:
-  - config.js
-
-  PUBLIC API:
-  - Game.State
-
-  IMPORTANT RULES:
-  - This file should only store state.
-  - Do not put rendering logic here.
-  - Do not put DOM event bindings here.
 */
 
 window.Game = window.Game || {};
@@ -29,11 +18,22 @@ window.Game = window.Game || {};
       hover: null,
       player: {
         row: Math.floor(Config.DEFAULT_ROWS / 2),
-        col: Math.floor(Config.DEFAULT_COLS / 2)
+        col: Math.floor(Config.DEFAULT_COLS / 2),
+        moving: false,
+        startRow: Math.floor(Config.DEFAULT_ROWS / 2),
+        startCol: Math.floor(Config.DEFAULT_COLS / 2),
+        targetRow: Math.floor(Config.DEFAULT_ROWS / 2),
+        targetCol: Math.floor(Config.DEFAULT_COLS / 2),
+        moveStartTime: 0,
+        moveDuration: 180,
+        progress: 1,
+        direction: 's',
+        pathQueue: []
       },
       seed: Config.DEFAULT_SEED,
       terrain: [],
-      params: null
+      params: null,
+      previewPath: []
     },
 
     camera: {
@@ -47,11 +47,19 @@ window.Game = window.Game || {};
       zoom: 1,
       minZoom: 0.6,
       maxZoom: 2.2,
-      zoomStep: 0.1
+      zoomStep: 0.1,
+      followPlayer: true,
+      pitchAngle: Config.DEFAULT_CAMERA_PITCH,
+      depthStrength: Config.DEFAULT_DEPTH_STRENGTH
     },
 
     input: {
-      keys: new Set()
+      keys: new Set(),
+      lastTileClick: null,
+      lastTileClickTime: 0,
+      doubleClickThresholdMs: 500,
+      mouseX: 0,
+      mouseY: 0
     },
 
     dom: {
@@ -73,6 +81,8 @@ window.Game = window.Game || {};
       seedInput: null,
       mapWidthInput: null,
       mapHeightInput: null,
+      cameraPitchInput: null,
+      depthStrengthInput: null,
 
       dialogText: null,
       languageSelect: null,

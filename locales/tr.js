@@ -25,7 +25,7 @@ window.Game.Locales.tr = {
     "mana": "Mana"
   },
   "overlay": {
-    "instructionsHtml": "Sol tık: tile seç<br />Sürükle: kamera gezintisi<br />Ok tuşları / WASD: haritada hareket<br />Ayarlar: SEED tabanlı topoloji ve arazi parametreleri"
+    "instructionsHtml": "Sol tık: tile seç<br />Sürükle: kamera gezintisi<br />Ok tuşları / WASD: haritada hareket<br />Izgara: diamond / düz izometrik düzen<br />Ayarlar: SEED tabanlı topoloji ve arazi parametreleri"
   },
   "character": {
     "title": "Karakter",
@@ -57,6 +57,8 @@ window.Game.Locales.tr = {
     "seedCode": "SEED Kodu",
     "mapWidth": "Harita Genişliği",
     "mapHeight": "Harita Yüksekliği",
+    "cameraPitch": "Kamera Eğim Açısı",
+    "depthStrength": "Derinlik Etkisi",
     "streamCount": "Dere Sayısı",
     "lake": "Göl",
     "hillCount": "Tepe Sayısı",

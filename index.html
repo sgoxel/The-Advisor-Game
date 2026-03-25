@@ -20,7 +20,15 @@
               <input id="seedInput" type="text" value="SIMSOFT-001" maxlength="64" />
             </label>
 
-            <div></div>
+            <label class="form-field">
+              <span data-i18n="settings.cameraPitch">Camera Pitch Angle</span>
+              <input id="cameraPitchInput" type="number" min="20" max="65" step="1" value="38" />
+            </label>
+
+            <label class="form-field">
+              <span data-i18n="settings.depthStrength">Depth Strength</span>
+              <input id="depthStrengthInput" type="number" min="0.6" max="1.8" step="0.1" value="1.0" />
+            </label>
 
             <label class="form-field">
               <span data-i18n="settings.mapWidth">Map Width</span>
@@ -200,6 +208,7 @@
         Left click: select tile<br />
         Drag: move camera<br />
         Arrow keys / WASD: navigate the map<br />
+        Grid: diamond / straight isometric layout<br />
         Settings: inspect SEED-based topology and terrain parameters
       </div>
     </main>

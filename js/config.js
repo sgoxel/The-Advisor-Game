@@ -1,16 +1,6 @@
 /*
   FILE PURPOSE:
   Central place for application constants and limits.
-
-  DEPENDENCIES:
-  - none
-
-  PUBLIC API:
-  - Game.Config
-
-  IMPORTANT RULES:
-  - Do not put runtime mutable state here.
-  - Do not put DOM access here.
 */
 
 window.Game = window.Game || {};
@@ -23,8 +13,15 @@ window.Game.Config = {
   MIN_MAP_SIZE: 12,
   MAX_MAP_SIZE: 80,
 
-  TILE_WIDTH: 76,
-  TILE_HEIGHT: 38,
+  TILE_WIDTH: 96,
+  TILE_HEIGHT: 44,
+
+  DEFAULT_CAMERA_PITCH: 38,
+  DEFAULT_DEPTH_STRENGTH: 1.0,
+  MIN_CAMERA_PITCH: 20,
+  MAX_CAMERA_PITCH: 65,
+  MIN_DEPTH_STRENGTH: 0.6,
+  MAX_DEPTH_STRENGTH: 1.8,
 
   CAMERA_MOVE_SPEED: 18
 };

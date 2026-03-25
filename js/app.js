@@ -21,7 +21,17 @@ window.Game = window.Game || {};
     world.hover = null;
     world.player = {
       row: Math.floor(rows / 2),
-      col: Math.floor(cols / 2)
+      col: Math.floor(cols / 2),
+      moving: false,
+      startRow: Math.floor(rows / 2),
+      startCol: Math.floor(cols / 2),
+      targetRow: Math.floor(rows / 2),
+      targetCol: Math.floor(cols / 2),
+      moveStartTime: 0,
+      moveDuration: 180,
+      progress: 1,
+      direction: 's',
+      pathQueue: []
     };
 
     const generated = Terrain.generateWorld(seed, cols, rows);
@@ -54,7 +64,11 @@ window.Game = window.Game || {};
     const seed = (dom.seedInput.value || "").trim() || Config.DEFAULT_SEED;
     const cols = Utils.clamp(Number(dom.mapWidthInput.value) || Config.DEFAULT_COLS, Config.MIN_MAP_SIZE, Config.MAX_MAP_SIZE);
     const rows = Utils.clamp(Number(dom.mapHeightInput.value) || Config.DEFAULT_ROWS, Config.MIN_MAP_SIZE, Config.MAX_MAP_SIZE);
+    const pitchAngle = Utils.clamp(Number(dom.cameraPitchInput.value) || Config.DEFAULT_CAMERA_PITCH, Config.MIN_CAMERA_PITCH, Config.MAX_CAMERA_PITCH);
+    const depthStrength = Utils.clamp(Number(dom.depthStrengthInput.value) || Config.DEFAULT_DEPTH_STRENGTH, Config.MIN_DEPTH_STRENGTH, Config.MAX_DEPTH_STRENGTH);
 
+    State.camera.pitchAngle = pitchAngle;
+    State.camera.depthStrength = depthStrength;
     rebuildWorld(seed, cols, rows);
     UI.closeSettingsModal();
     UI.addLog(I18n.t("logs.settingsApplied", { seed, cols, rows }));
@@ -73,8 +87,10 @@ window.Game = window.Game || {};
     Renderer.markDirty();
   }
 
-  function loop() {
+  function loop(timestamp) {
     Input.updateCameraFromKeyboard();
+    Input.updatePlayerMovement(timestamp || performance.now());
+    Renderer.updateCameraFollow();
     Renderer.renderWorld();
     Minimap.renderMinimap();
     requestAnimationFrame(loop);
