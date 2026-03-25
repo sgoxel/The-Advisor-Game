@@ -32,30 +32,35 @@ window.Game = window.Game || {};
   }
 
   function createShader(gl, type, source) {
-    const shader = gl.createShader(type);
+    const shader = gl.createShader(gl[type]);
     gl.shaderSource(shader, source);
     gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(`Shader compile error: ${gl.getShaderInfoLog(shader)}`);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      throw new Error(`Shader compile error: ${gl.getShaderInfoLog(shader)}`);
+    }
     return shader;
   }
 
-  function createProgram(gl, vs, fs) {
+  function createProgram(gl, vertexSource, fragmentSource) {
+    const vs = createShader(gl, 'VERTEX_SHADER', vertexSource);
+    const fs = createShader(gl, 'FRAGMENT_SHADER', fragmentSource);
     const program = gl.createProgram();
     gl.attachShader(program, vs);
     gl.attachShader(program, fs);
     gl.linkProgram(program);
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(`Program link error: ${gl.getProgramInfoLog(program)}`);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      throw new Error(`Program link error: ${gl.getProgramInfoLog(program)}`);
+    }
     return program;
   }
 
   function initializeWebGLResources() {
     const gl = State.dom.gl;
     const render = State.render;
+    if (!gl) return;
     if (render.program) return;
 
-    const vs = createShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER_SOURCE);
-    const fs = createShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER_SOURCE);
-    const program = createProgram(gl, vs, fs);
+    const program = createProgram(gl, VERTEX_SHADER_SOURCE, FRAGMENT_SHADER_SOURCE);
 
     render.program = program;
     render.positionBuffer = gl.createBuffer();
@@ -123,14 +128,27 @@ window.Game = window.Game || {};
     const player = State.world.player;
     if (!player) return { x: 0, y: 0 };
     if (!player.moving) return gridToScreen(player.row, player.col, 0, 0);
+
     const start = gridToScreen(player.startRow, player.startCol, 0, 0);
     const end = gridToScreen(player.targetRow, player.targetCol, 0, 0);
     const t = Math.max(0, Math.min(1, player.progress || 0));
-    return { x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t };
+
+    return {
+      x: start.x + (end.x - start.x) * t,
+      y: start.y + (end.y - start.y) * t
+    };
   }
 
-  function centerCameraOnTile(row, col) { const pos = gridToScreen(row, col, 0, 0); centerCameraOnWorld(pos.x, pos.y); }
-  function centerCamera() { const p = getPlayerWorldPosition(); centerCameraOnWorld(p.x, p.y); }
+  function centerCameraOnTile(row, col) {
+    const pos = gridToScreen(row, col, 0, 0);
+    centerCameraOnWorld(pos.x, pos.y);
+  }
+
+  function centerCamera() {
+    const p = getPlayerWorldPosition();
+    centerCameraOnWorld(p.x, p.y);
+  }
+
   function calculateFitZoom(paddingRatio) {
     const canvas = State.dom.canvas;
     const world = State.world;
@@ -146,6 +164,7 @@ window.Game = window.Game || {};
 
     const widthZoom = availableWidth / Math.max(1, (world.cols + world.rows) * 0.5 * world.tileWidth);
     const heightZoom = availableHeight / Math.max(1, (world.cols + world.rows) * 0.5 * world.tileWidth * ratio);
+
     return Math.max(0.08, Math.min(widthZoom, heightZoom));
   }
 
@@ -165,37 +184,41 @@ window.Game = window.Game || {};
     centerCamera();
     markDirty();
   }
-  function updateCameraFollow() { if (State.camera.followPlayer && State.world.player && State.world.player.moving) centerCamera(); }
+
+  function updateCameraFollow() {
+    if (State.camera.followPlayer && State.world.player && State.world.player.moving) {
+      centerCamera();
+    }
+  }
 
   function resizeCanvas() {
     const dom = State.dom;
+    const canvas = dom.canvas;
+    if (!canvas) return;
+
+    if (!dom.gl) {
+      dom.gl = canvas.getContext('webgl', { antialias: true, alpha: true })
+        || canvas.getContext('experimental-webgl', { antialias: true, alpha: true });
+      if (!dom.gl) {
+        throw new Error('WebGL context could not be created.');
+      }
+    }
+
     const gl = dom.gl;
     const dpr = window.devicePixelRatio || 1;
-    const displayWidth = Math.round(dom.canvas.clientWidth * dpr);
-    const displayHeight = Math.round(dom.canvas.clientHeight * dpr);
-    if (dom.canvas.width !== displayWidth || dom.canvas.height !== displayHeight) {
-      dom.canvas.width = displayWidth;
-      dom.canvas.height = displayHeight;
+    const displayWidth = Math.round(canvas.clientWidth * dpr);
+    const displayHeight = Math.round(canvas.clientHeight * dpr);
+
+    if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
+      canvas.width = displayWidth;
+      canvas.height = displayHeight;
     }
+
     initializeWebGLResources();
-    gl.viewport(0, 0, dom.canvas.width, dom.canvas.height);
+    gl.viewport(0, 0, canvas.width, canvas.height);
     updateZoomLimits();
     centerCamera();
     markDirty();
-  }
-
-  function pickTile(x, y) {
-    const world = State.world;
-    const guess = screenToGridFloat(x, y);
-    const baseRow = Math.round(guess.row);
-    const baseCol = Math.round(guess.col);
-    for (let row = Math.max(0, baseRow - 2); row <= Math.min(world.rows - 1, baseRow + 2); row++) {
-      for (let col = Math.max(0, baseCol - 2); col <= Math.min(world.cols - 1, baseCol + 2); col++) {
-        const pos = gridToScreen(row, col);
-        if (pointInDiamond(x, y, pos.x, pos.y)) return { row, col };
-      }
-    }
-    return null;
   }
 
   function terrainColor(tile) {
@@ -203,6 +226,7 @@ window.Game = window.Game || {};
       const base = tile.visual.base;
       return `rgb(${base[0]}, ${base[1]}, ${base[2]})`;
     }
+
     switch (tile.type) {
       case 'grass': return '#5a9b5f';
       case 'grass2': return '#6aaa6c';
@@ -220,24 +244,67 @@ window.Game = window.Game || {};
     }
   }
 
-  function hexToNormalizedRgba(hex, alpha) {
-    const cleaned = hex.replace('#', '');
-    const value = parseInt(cleaned, 16);
-    return [((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255, alpha !== undefined ? alpha : 1];
+  function colorStringToRgba(color, alpha) {
+    if (!color) return [0, 0, 0, alpha === undefined ? 1 : alpha];
+
+    if (color.startsWith('#')) {
+      const cleaned = color.replace('#', '');
+      const value = parseInt(cleaned, 16);
+      return [((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255, alpha === undefined ? 1 : alpha];
+    }
+
+    const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/i);
+    if (match) {
+      return [Number(match[1]) / 255, Number(match[2]) / 255, Number(match[3]) / 255, alpha === undefined ? 1 : alpha];
+    }
+
+    return [0, 0, 0, alpha === undefined ? 1 : alpha];
   }
 
-  function setCustomColor(gl, rgba) { gl.uniform4f(State.render.colorLocation, rgba[0], rgba[1], rgba[2], rgba[3]); }
+  function darkenRgb(rgb, factor) {
+    return [
+      Math.max(0, Math.round((rgb[0] || 0) * factor)),
+      Math.max(0, Math.round((rgb[1] || 0) * factor)),
+      Math.max(0, Math.round((rgb[2] || 0) * factor))
+    ];
+  }
+
+  function rgbaFromRgb(rgb, alpha) {
+    return [
+      (rgb[0] || 0) / 255,
+      (rgb[1] || 0) / 255,
+      (rgb[2] || 0) / 255,
+      alpha === undefined ? 1 : alpha
+    ];
+  }
+
+  function setCustomColor(gl, rgba) {
+    gl.uniform4f(State.render.colorLocation, rgba[0], rgba[1], rgba[2], rgba[3]);
+  }
+
   function drawTriangles(gl, vertices, rgba) {
     gl.bindBuffer(gl.ARRAY_BUFFER, State.render.positionBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STREAM_DRAW);
     setCustomColor(gl, rgba);
     gl.drawArrays(gl.TRIANGLES, 0, vertices.length / 2);
   }
+
   function drawLineLoop(gl, vertices, rgba) {
     gl.bindBuffer(gl.ARRAY_BUFFER, State.render.positionBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STREAM_DRAW);
     setCustomColor(gl, rgba);
     gl.drawArrays(gl.LINE_LOOP, 0, vertices.length / 2);
+  }
+
+  function drawQuad(gl, a, b, c, d, rgba) {
+    drawTriangles(gl, [
+      a.x, a.y,
+      b.x, b.y,
+      c.x, c.y,
+      a.x, a.y,
+      c.x, c.y,
+      d.x, d.y
+    ], rgba);
   }
 
   function drawEllipse(gl, cx, cy, radiusX, radiusY, rgba, segments) {
@@ -246,15 +313,27 @@ window.Game = window.Game || {};
     for (let i = 0; i < count; i++) {
       const a0 = (i / count) * Math.PI * 2;
       const a1 = ((i + 1) / count) * Math.PI * 2;
-      vertices.push(cx, cy, cx + Math.cos(a0) * radiusX, cy + Math.sin(a0) * radiusY, cx + Math.cos(a1) * radiusX, cy + Math.sin(a1) * radiusY);
+      vertices.push(
+        cx, cy,
+        cx + Math.cos(a0) * radiusX, cy + Math.sin(a0) * radiusY,
+        cx + Math.cos(a1) * radiusX, cy + Math.sin(a1) * radiusY
+      );
     }
     drawTriangles(gl, vertices, rgba);
   }
 
   function drawCapsule(gl, x1, y1, x2, y2, radius, rgba) {
-    const dx = x2 - x1, dy = y2 - y1, length = Math.hypot(dx, dy);
-    if (length < 0.0001) { drawEllipse(gl, x1, y1, radius, radius, rgba, 20); return; }
-    const nx = -dy / length, ny = dx / length;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const length = Math.hypot(dx, dy);
+    if (length < 0.0001) {
+      drawEllipse(gl, x1, y1, radius, radius, rgba, 20);
+      return;
+    }
+
+    const nx = -dy / length;
+    const ny = dx / length;
+
     drawTriangles(gl, [
       x1 + nx * radius, y1 + ny * radius,
       x1 - nx * radius, y1 - ny * radius,
@@ -263,6 +342,7 @@ window.Game = window.Game || {};
       x1 - nx * radius, y1 - ny * radius,
       x2 - nx * radius, y2 - ny * radius
     ], rgba);
+
     drawEllipse(gl, x1, y1, radius, radius, rgba, 20);
     drawEllipse(gl, x2, y2, radius, radius, rgba, 20);
   }
@@ -284,6 +364,114 @@ window.Game = window.Game || {};
       ],
       outline
     };
+  }
+
+  function getTileBaseHeightSteps(tile) {
+    if (!tile) return 0;
+
+    switch (tile.type) {
+      case 'water': return -1;
+      case 'road': return 0;
+      case 'settlement': return 1;
+      case 'grass':
+      case 'grass2':
+      case 'dirt': return 1;
+      case 'forest': return 2;
+      case 'hillGrass':
+      case 'dirtHill': return 3;
+      case 'forestHill': return 4;
+      case 'hillStone':
+      case 'stone': return 5;
+      default: return 1;
+    }
+  }
+
+  function getTileHeightSteps(tile) {
+    const base = getTileBaseHeightSteps(tile);
+    const extra = Math.max(0, tile && tile.elevation ? tile.elevation : 0);
+
+    if (tile && (tile.type === 'hillGrass'
+      || tile.type === 'dirtHill'
+      || tile.type === 'forestHill'
+      || tile.type === 'hillStone'
+      || (tile.tags && tile.tags.has('hill')))) {
+      return Math.max(base, base + Math.round(extra * 1.4));
+    }
+
+    return base;
+  }
+
+  function getTileElevationPx(tile, tileHeight) {
+    const steps = getTileHeightSteps(tile);
+    return Math.round(steps * tileHeight * 0.22);
+  }
+
+  function getElevatedTilePosition(pos, tile, tileHeight) {
+    return {
+      x: pos.x,
+      y: pos.y - getTileElevationPx(tile, tileHeight)
+    };
+  }
+
+  function getNeighborTileHeightPx(row, col, dRow, dCol, tileHeight) {
+    const nrow = row + dRow;
+    const ncol = col + dCol;
+    if (nrow < 0 || ncol < 0 || nrow >= State.world.rows || ncol >= State.world.cols) {
+      return 0;
+    }
+    const tile = State.world.terrain[nrow] && State.world.terrain[nrow][ncol];
+    return getTileElevationPx(tile, tileHeight);
+  }
+
+  function getVisibleSideDrops(row, col, tile, tileHeight) {
+    const currentHeight = getTileElevationPx(tile, tileHeight);
+    const leftNeighborHeight = getNeighborTileHeightPx(row, col, 1, 0, tileHeight);
+    const rightNeighborHeight = getNeighborTileHeightPx(row, col, 0, 1, tileHeight);
+    return {
+      leftDrop: Math.max(0, currentHeight - leftNeighborHeight),
+      rightDrop: Math.max(0, currentHeight - rightNeighborHeight)
+    };
+  }
+
+  function lerpPoint(a, b, t) {
+    return {
+      x: a.x + (b.x - a.x) * t,
+      y: a.y + (b.y - a.y) * t
+    };
+  }
+
+  function sampleVisualColor(tile, u, v, fallbackRgb) {
+    if (!tile || !tile.visual || !tile.visual.cells || !tile.visual.gridSize) return fallbackRgb;
+    const size = tile.visual.gridSize;
+    const gx = Math.max(0, Math.min(size - 1, Math.round(u * (size - 1))));
+    const gy = Math.max(0, Math.min(size - 1, Math.round(v * (size - 1))));
+    const idx = gy * size + gx;
+    return tile.visual.cells[idx] || fallbackRgb;
+  }
+
+  function drawSlopeFace(gl, upperA, upperB, lowerB, lowerA, tile, side, baseRgb) {
+    const slices = Math.max(5, Math.min(12, tile && tile.visual && tile.visual.gridSize ? tile.visual.gridSize : 8));
+    for (let i = 0; i < slices; i++) {
+      const t0 = i / slices;
+      const t1 = (i + 1) / slices;
+      const ua = lerpPoint(upperA, upperB, t0);
+      const ub = lerpPoint(upperA, upperB, t1);
+      const la = lerpPoint(lowerA, lowerB, t0);
+      const lb = lerpPoint(lowerA, lowerB, t1);
+
+      let rgb;
+      if (side === 'left') {
+        rgb = sampleVisualColor(tile, 0.18 + t0 * 0.22, 0.55 + t0 * 0.35, baseRgb);
+      } else {
+        rgb = sampleVisualColor(tile, 0.62 + t0 * 0.22, 0.55 + t0 * 0.35, baseRgb);
+      }
+
+      const shade = side === 'left'
+        ? (0.88 - t0 * 0.20)
+        : (0.80 - t0 * 0.22);
+      const shaded = darkenRgb(rgb, shade);
+      drawQuad(gl, ua, ub, lb, la, rgbaFromRgb(shaded, 1));
+    }
   }
 
   function drawNoisePatches(gl, pos, tile, tileWidth, tileHeight) {
@@ -308,6 +496,7 @@ window.Game = window.Game || {};
         const idx = gy * gridSize + gx;
         const rgb = tile.visual.cells[idx];
         if (!rgb) continue;
+
         const u0 = gx / gridSize;
         const v0 = gy / gridSize;
         const u1 = (gx + 1) / gridSize;
@@ -316,6 +505,7 @@ window.Game = window.Game || {};
         const p10 = mapPoint(u1, v0);
         const p11 = mapPoint(u1, v1);
         const p01 = mapPoint(u0, v1);
+
         drawTriangles(gl, [
           p00.x, p00.y,
           p10.x, p10.y,
@@ -328,11 +518,40 @@ window.Game = window.Game || {};
     }
   }
 
-  function drawTileWebGL(gl, pos, color, tile, tileWidth, tileHeight, highlight) {
-    const vertices = getDiamondTriangleVertices(pos.x, pos.y, tileWidth, tileHeight);
-    drawTriangles(gl, vertices.triangles, hexToNormalizedRgba(color, 1));
-    drawNoisePatches(gl, pos, tile, tileWidth, tileHeight);
-    drawLineLoop(gl, vertices.outline, highlight ? [0.97, 0.87, 0.48, 1] : [0.21, 0.34, 0.22, 0.45]);
+  function drawTileWebGL(gl, row, col, pos, color, tile, tileWidth, tileHeight, highlight) {
+    const topPos = getElevatedTilePosition(pos, tile, tileHeight);
+    const topOutline = getDiamondOutlineVertices(topPos.x, topPos.y, tileWidth, tileHeight);
+    const topTriangles = getDiamondTriangleVertices(topPos.x, topPos.y, tileWidth, tileHeight);
+
+    const baseRgb = (tile && tile.visual && tile.visual.base)
+      ? tile.visual.base
+      : (() => {
+          const rgba = colorStringToRgba(color, 1);
+          return [Math.round(rgba[0] * 255), Math.round(rgba[1] * 255), Math.round(rgba[2] * 255)];
+        })();
+
+    const drops = getVisibleSideDrops(row, col, tile, tileHeight);
+    const L = { x: topOutline[6], y: topOutline[7] };
+    const R = { x: topOutline[2], y: topOutline[3] };
+    const B = { x: topOutline[4], y: topOutline[5] };
+
+    if (drops.leftDrop > 0) {
+      const lowerL = { x: L.x, y: L.y + drops.leftDrop };
+      const lowerB = { x: B.x, y: B.y + drops.leftDrop };
+      drawSlopeFace(gl, L, B, lowerB, lowerL, tile, 'left', baseRgb);
+      drawLineLoop(gl, [L.x, L.y, B.x, B.y, lowerB.x, lowerB.y, lowerL.x, lowerL.y], [0.18, 0.22, 0.18, 0.18]);
+    }
+
+    if (drops.rightDrop > 0) {
+      const lowerR = { x: R.x, y: R.y + drops.rightDrop };
+      const lowerB = { x: B.x, y: B.y + drops.rightDrop };
+      drawSlopeFace(gl, R, B, lowerB, lowerR, tile, 'right', baseRgb);
+      drawLineLoop(gl, [R.x, R.y, B.x, B.y, lowerB.x, lowerB.y, lowerR.x, lowerR.y], [0.16, 0.18, 0.16, 0.16]);
+    }
+
+    drawTriangles(gl, topTriangles.triangles, colorStringToRgba(color, 1));
+    drawNoisePatches(gl, topPos, tile, tileWidth, tileHeight);
+    drawLineLoop(gl, topTriangles.outline, highlight ? [0.97, 0.87, 0.48, 1] : [0.21, 0.34, 0.22, 0.32]);
   }
 
   function drawSelectionMarker(gl, pos, tileWidth, tileHeight) {
@@ -343,15 +562,20 @@ window.Game = window.Game || {};
     const dx = toPos.x - fromPos.x;
     const dy = toPos.y - fromPos.y;
     const length = Math.hypot(dx, dy) || 1;
-    const ux = dx / length, uy = dy / length;
-    const px = -uy, py = ux;
+    const ux = dx / length;
+    const uy = dy / length;
+    const px = -uy;
+    const py = ux;
     const bodyLength = tileHeight * 0.95;
     const headLength = tileHeight * 0.55;
     const bodyHalf = tileHeight * 0.14;
     const headHalf = tileHeight * 0.28;
-    const sx = fromPos.x, sy = fromPos.y;
-    const bx = sx + ux * bodyLength, by = sy + uy * bodyLength;
-    const hx = bx + ux * headLength, hy = by + uy * headLength;
+    const sx = fromPos.x;
+    const sy = fromPos.y;
+    const bx = sx + ux * bodyLength;
+    const by = sy + uy * bodyLength;
+    const hx = bx + ux * headLength;
+    const hy = by + uy * headLength;
 
     drawTriangles(gl, [
       sx + px * bodyHalf, sy + py * bodyHalf,
@@ -372,16 +596,44 @@ window.Game = window.Game || {};
   function drawPreviewRoute(gl, path, metrics) {
     if (!path || path.length < 2) return;
     for (let i = 0; i < path.length - 1; i++) {
-      drawArrowMarker(gl, gridToScreen(path[i].row, path[i].col), gridToScreen(path[i + 1].row, path[i + 1].col), metrics.tileWidth, metrics.tileHeight);
+      const fromTile = State.world.terrain[path[i].row] && State.world.terrain[path[i].row][path[i].col];
+      const toTile = State.world.terrain[path[i + 1].row] && State.world.terrain[path[i + 1].row][path[i + 1].col];
+      const fromPos = getElevatedTilePosition(gridToScreen(path[i].row, path[i].col), fromTile, metrics.tileHeight);
+      const toPos = getElevatedTilePosition(gridToScreen(path[i + 1].row, path[i + 1].col), toTile, metrics.tileHeight);
+      drawArrowMarker(gl, fromPos, toPos, metrics.tileWidth, metrics.tileHeight);
     }
   }
 
   function drawPlayer(gl, pos, tileWidth, tileHeight) {
-    const centerX = pos.x, groundY = pos.y, unit = tileHeight * 0.36;
-    const white = [0.93, 0.94, 0.96, 1], mid = [0.82, 0.84, 0.88, 1], dark = [0.58, 0.61, 0.68, 1], shadow = [0.16, 0.24, 0.16, 0.18], softShade = [0.74, 0.76, 0.82, 0.32], outline = [0.34, 0.36, 0.42, 0.50];
+    const centerX = pos.x;
+    const groundY = pos.y;
+    const unit = tileHeight * 0.36;
+    const white = [0.93, 0.94, 0.96, 1];
+    const mid = [0.82, 0.84, 0.88, 1];
+    const dark = [0.58, 0.61, 0.68, 1];
+    const shadow = [0.16, 0.24, 0.16, 0.18];
+    const softShade = [0.74, 0.76, 0.82, 0.32];
+    const outline = [0.34, 0.36, 0.42, 0.50];
+
     drawEllipse(gl, centerX + unit * 0.5, groundY + unit * 0.2, unit * 1.7, unit * 0.58, shadow, 32);
-    const pelvisY = groundY - unit * 2.2, waistY = pelvisY - unit * 0.16, abdomenY = pelvisY - unit * 0.68, chestY = pelvisY - unit * 1.34, shoulderY = pelvisY - unit * 1.65, neckY = pelvisY - unit * 1.98, headY = pelvisY - unit * 2.64;
-    const leftHipX = centerX - unit * 0.36, rightHipX = centerX + unit * 0.36, kneeY = groundY - unit * 1.08, ankleY = groundY - unit * 0.16, leftKneeX = centerX - unit * 0.42, rightKneeX = centerX + unit * 0.42, leftAnkleX = centerX - unit * 0.32, rightAnkleX = centerX + unit * 0.32;
+
+    const pelvisY = groundY - unit * 2.2;
+    const waistY = pelvisY - unit * 0.16;
+    const abdomenY = pelvisY - unit * 0.68;
+    const chestY = pelvisY - unit * 1.34;
+    const shoulderY = pelvisY - unit * 1.65;
+    const neckY = pelvisY - unit * 1.98;
+    const headY = pelvisY - unit * 2.64;
+
+    const leftHipX = centerX - unit * 0.36;
+    const rightHipX = centerX + unit * 0.36;
+    const kneeY = groundY - unit * 1.08;
+    const ankleY = groundY - unit * 0.16;
+    const leftKneeX = centerX - unit * 0.42;
+    const rightKneeX = centerX + unit * 0.42;
+    const leftAnkleX = centerX - unit * 0.32;
+    const rightAnkleX = centerX + unit * 0.32;
+
     drawCapsule(gl, leftHipX, pelvisY + unit * 0.1, leftKneeX, kneeY, unit * 0.25, white);
     drawCapsule(gl, rightHipX, pelvisY + unit * 0.1, rightKneeX, kneeY, unit * 0.25, white);
     drawCapsule(gl, leftKneeX, kneeY, leftAnkleX, ankleY, unit * 0.2, white);
@@ -395,7 +647,16 @@ window.Game = window.Game || {};
     drawEllipse(gl, centerX, shoulderY - unit * 0.04, unit * 0.72, unit * 0.22, mid, 18);
     drawEllipse(gl, centerX - unit * 0.80, shoulderY, unit * 0.30, unit * 0.24, white, 20);
     drawEllipse(gl, centerX + unit * 0.80, shoulderY, unit * 0.30, unit * 0.24, white, 20);
-    const leftShoulderX = centerX - unit * 0.88, rightShoulderX = centerX + unit * 0.88, elbowY = pelvisY - unit * 0.78, wristY = groundY - unit * 1.24, leftElbowX = centerX - unit * 0.90, rightElbowX = centerX + unit * 0.90, leftWristX = centerX - unit * 0.84, rightWristX = centerX + unit * 0.84;
+
+    const leftShoulderX = centerX - unit * 0.88;
+    const rightShoulderX = centerX + unit * 0.88;
+    const elbowY = pelvisY - unit * 0.78;
+    const wristY = groundY - unit * 1.24;
+    const leftElbowX = centerX - unit * 0.90;
+    const rightElbowX = centerX + unit * 0.90;
+    const leftWristX = centerX - unit * 0.84;
+    const rightWristX = centerX + unit * 0.84;
+
     drawCapsule(gl, leftShoulderX, shoulderY + unit * 0.04, leftElbowX, elbowY, unit * 0.15, white);
     drawCapsule(gl, rightShoulderX, shoulderY + unit * 0.04, rightElbowX, elbowY, unit * 0.15, white);
     drawCapsule(gl, leftElbowX, elbowY, leftWristX, wristY, unit * 0.12, white);
@@ -406,35 +667,83 @@ window.Game = window.Game || {};
     drawEllipse(gl, centerX, headY, unit * 0.42, unit * 0.58, white, 28);
     drawEllipse(gl, centerX + unit * 0.16, headY, unit * 0.10, unit * 0.40, dark, 16);
     drawEllipse(gl, centerX + unit * 0.18, chestY + unit * 0.06, unit * 0.16, unit * 0.72, softShade, 16);
-    drawLineLoop(gl, [centerX - unit * 0.28, headY - unit * 0.46, centerX + unit * 0.10, headY - unit * 0.54, centerX + unit * 0.40, headY - unit * 0.06, centerX + unit * 0.16, headY + unit * 0.46, centerX - unit * 0.22, headY + unit * 0.44, centerX - unit * 0.42, headY - unit * 0.06], outline);
+    drawLineLoop(gl, [
+      centerX - unit * 0.28, headY - unit * 0.46,
+      centerX + unit * 0.10, headY - unit * 0.54,
+      centerX + unit * 0.40, headY - unit * 0.06,
+      centerX + unit * 0.16, headY + unit * 0.46,
+      centerX - unit * 0.22, headY + unit * 0.44,
+      centerX - unit * 0.42, headY - unit * 0.06
+    ], outline);
+  }
+
+  function pickTile(x, y) {
+    const world = State.world;
+    const guess = screenToGridFloat(x, y);
+    const baseRow = Math.round(guess.row);
+    const baseCol = Math.round(guess.col);
+
+    for (let row = Math.max(0, baseRow - 2); row <= Math.min(world.rows - 1, baseRow + 2); row++) {
+      for (let col = Math.max(0, baseCol - 2); col <= Math.min(world.cols - 1, baseCol + 2); col++) {
+        const tile = world.terrain[row] && world.terrain[row][col];
+        const pos = gridToScreen(row, col);
+        const topPos = getElevatedTilePosition(pos, tile, getIsoMetrics().tileHeight);
+        if (pointInDiamond(x, y, topPos.x, topPos.y)) return { row, col };
+      }
+    }
+
+    return null;
   }
 
   function renderWorld(force) {
-    const dom = State.dom, world = State.world, render = State.render, gl = dom.gl, metrics = getIsoMetrics();
+    const dom = State.dom;
+    const world = State.world;
+    const render = State.render;
+    const gl = dom.gl;
+    const metrics = getIsoMetrics();
+
     if (!gl || !render.program || !world.terrain.length) return;
     if (!force && !render.needsWorldRedraw) return;
 
     gl.clearColor(render.clearColor[0], render.clearColor[1], render.clearColor[2], render.clearColor[3]);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(render.program);
-    gl.uniform2f(render.resolutionLocation, dom.canvas.clientWidth, dom.canvas.clientHeight);
+    gl.uniform2f(render.resolutionLocation, dom.canvas.width, dom.canvas.height);
 
     for (let row = 0; row < world.rows; row++) {
       for (let col = 0; col < world.cols; col++) {
         const pos = gridToScreen(row, col);
-        if (pos.x < -metrics.tileWidth || pos.x > dom.canvas.clientWidth + metrics.tileWidth || pos.y < -metrics.tileHeight || pos.y > dom.canvas.clientHeight + metrics.tileHeight) continue;
+        if (
+          pos.x < -metrics.tileWidth || pos.x > dom.canvas.clientWidth + metrics.tileWidth ||
+          pos.y < -metrics.tileHeight * 4 || pos.y > dom.canvas.clientHeight + metrics.tileHeight
+        ) {
+          continue;
+        }
+
         const tile = world.terrain[row][col];
         const isHovered = world.hover && world.hover.row === row && world.hover.col === col;
         const isSelected = world.selected && world.selected.row === row && world.selected.col === col;
-        drawTileWebGL(gl, pos, terrainColor(tile), tile, metrics.tileWidth, metrics.tileHeight, isHovered || isSelected);
-        if (isSelected) drawSelectionMarker(gl, pos, metrics.tileWidth, metrics.tileHeight);
+        drawTileWebGL(gl, row, col, pos, terrainColor(tile), tile, metrics.tileWidth, metrics.tileHeight, isHovered || isSelected);
+
+        if (isSelected) {
+          const topPos = getElevatedTilePosition(pos, tile, metrics.tileHeight);
+          drawSelectionMarker(gl, topPos, metrics.tileWidth, metrics.tileHeight);
+        }
       }
     }
 
-    if (world.previewPath && world.previewPath.length > 1) drawPreviewRoute(gl, world.previewPath, metrics);
+    if (world.previewPath && world.previewPath.length > 1) {
+      drawPreviewRoute(gl, world.previewPath, metrics);
+    }
+
     if (world.player) {
       const playerPos = getPlayerWorldPosition();
-      drawPlayer(gl, { x: playerPos.x + State.camera.x, y: playerPos.y + State.camera.y }, metrics.tileWidth, metrics.tileHeight);
+      const playerTile = world.terrain[world.player.row] && world.terrain[world.player.row][world.player.col];
+      const elevationPx = getTileElevationPx(playerTile, metrics.tileHeight);
+      drawPlayer(gl, {
+        x: playerPos.x + State.camera.x,
+        y: playerPos.y + State.camera.y - elevationPx
+      }, metrics.tileWidth, metrics.tileHeight);
     }
 
     render.needsWorldRedraw = false;
@@ -444,7 +753,9 @@ window.Game = window.Game || {};
     const vertices = getDiamondOutlineVertices(x, y, tileWidth, tileHeight);
     ctx.beginPath();
     ctx.moveTo(vertices[0], vertices[1]);
-    for (let i = 2; i < vertices.length; i += 2) ctx.lineTo(vertices[i], vertices[i + 1]);
+    for (let i = 2; i < vertices.length; i += 2) {
+      ctx.lineTo(vertices[i], vertices[i + 1]);
+    }
     ctx.closePath();
     ctx.fillStyle = color;
     ctx.fill();
@@ -468,6 +779,8 @@ window.Game = window.Game || {};
     updateCameraFollow,
     calculateFitZoom,
     updateZoomLimits,
-    fitCameraToWorld
+    fitCameraToWorld,
+    getTileElevationPx,
+    getElevatedTilePosition
   };
 })();
