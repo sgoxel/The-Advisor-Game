@@ -34,14 +34,6 @@ window.Game = window.Game || {};
     dom.mapHeightInput = document.getElementById("mapHeightInput");
     dom.cameraPitchInput = document.getElementById("cameraPitchInput");
     dom.depthStrengthInput = document.getElementById("depthStrengthInput");
-    dom.noiseDensityInput = document.getElementById("noiseDensityInput");
-    dom.noiseSizeInput = document.getElementById("noiseSizeInput");
-    dom.noiseOpacityInput = document.getElementById("noiseOpacityInput");
-    dom.colorVarianceInput = document.getElementById("colorVarianceInput");
-    dom.accentStrengthInput = document.getElementById("accentStrengthInput");
-    dom.transitionBlendInput = document.getElementById("transitionBlendInput");
-    dom.saturationInput = document.getElementById("saturationInput");
-    dom.contrastInput = document.getElementById("contrastInput");
 
     dom.dialogText = document.getElementById("dialogText");
     dom.languageSelect = document.getElementById("languageSelect");
@@ -80,14 +72,6 @@ window.Game = window.Game || {};
     dom.mapHeightInput.value = State.world.rows;
     dom.cameraPitchInput.value = State.camera.pitchAngle;
     dom.depthStrengthInput.value = State.camera.depthStrength;
-    dom.noiseDensityInput.value = State.visual.noiseDensity;
-    dom.noiseSizeInput.value = State.visual.noiseSize;
-    dom.noiseOpacityInput.value = State.visual.noiseOpacity;
-    dom.colorVarianceInput.value = State.visual.colorVariance;
-    dom.accentStrengthInput.value = State.visual.accentStrength;
-    dom.transitionBlendInput.value = State.visual.transitionBlend;
-    dom.saturationInput.value = State.visual.saturation;
-    dom.contrastInput.value = State.visual.contrast;
   }
 
   function percent(value) { return I18n.t("paramValues.percent", { value }); }
