@@ -227,8 +227,9 @@ window.Game = window.Game || {};
         const dx = pos.x - camera.lastX;
         const dy = pos.y - camera.lastY;
         if (Math.abs(dx) > 1 || Math.abs(dy) > 1) camera.movedWhileDragging = true;
-        camera.x += dx;
-        camera.y += dy;
+        const pan = Renderer.convertRenderDeltaToCameraDelta(-dx, -dy);
+        camera.x += pan.dx;
+        camera.y += pan.dy;
         camera.lastX = pos.x;
         camera.lastY = pos.y;
         Renderer.markDirty();
@@ -258,13 +259,11 @@ window.Game = window.Game || {};
       const pos = getCanvasMousePosition(event);
       input.mouseX = pos.x;
       input.mouseY = pos.y;
-      const hoveredTile = Renderer.pickTile(pos.x, pos.y);
       const oldZoom = camera.zoom;
       const direction = event.deltaY < 0 ? 1 : -1;
       const newZoom = Utils.clamp(Number((oldZoom + direction * camera.zoomStep).toFixed(2)), camera.minZoom, camera.maxZoom);
       if (newZoom === oldZoom) return;
       camera.zoom = newZoom;
-      if (hoveredTile) Renderer.centerCameraOnTile(hoveredTile.row, hoveredTile.col);
       Renderer.markDirty();
       UI.addLog(`Zoom değiştirildi: ${newZoom.toFixed(2)}x`);
     }, { passive: false });
@@ -339,8 +338,9 @@ window.Game = window.Game || {};
       const dx = pos.x - camera.lastX;
       const dy = pos.y - camera.lastY;
       if (Math.abs(dx) > 1 || Math.abs(dy) > 1) camera.movedWhileDragging = true;
-      camera.x += dx;
-      camera.y += dy;
+      const pan = Renderer.convertRenderDeltaToCameraDelta(-dx, -dy);
+      camera.x += pan.dx;
+      camera.y += pan.dy;
       camera.lastX = pos.x;
       camera.lastY = pos.y;
       Renderer.markDirty();
@@ -410,10 +410,17 @@ window.Game = window.Game || {};
     const input = State.input;
     const camera = State.camera;
     let moved = false;
-    if (input.keys.has('w') || input.keys.has('arrowup')) { camera.y += camera.moveSpeed; moved = true; }
-    if (input.keys.has('s') || input.keys.has('arrowdown')) { camera.y -= camera.moveSpeed; moved = true; }
-    if (input.keys.has('a') || input.keys.has('arrowleft')) { camera.x += camera.moveSpeed; moved = true; }
-    if (input.keys.has('d') || input.keys.has('arrowright')) { camera.x -= camera.moveSpeed; moved = true; }
+    let renderDx = 0;
+    let renderDz = 0;
+    if (input.keys.has('w') || input.keys.has('arrowup')) { renderDz -= camera.moveSpeed; moved = true; }
+    if (input.keys.has('s') || input.keys.has('arrowdown')) { renderDz += camera.moveSpeed; moved = true; }
+    if (input.keys.has('a') || input.keys.has('arrowleft')) { renderDx -= camera.moveSpeed; moved = true; }
+    if (input.keys.has('d') || input.keys.has('arrowright')) { renderDx += camera.moveSpeed; moved = true; }
+    if (moved) {
+      const pan = Renderer.convertRenderDeltaToCameraDelta(renderDx, renderDz);
+      camera.x += pan.dx;
+      camera.y += pan.dy;
+    }
     if (moved) Renderer.markDirty();
   }
 

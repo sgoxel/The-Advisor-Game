@@ -49,6 +49,7 @@ window.Game = window.Game || {};
   const WORLD_SURFACE_Y = 0.0;
   const GRID_OVERLAY_Y = 0.25;
   const MARKER_Y = 1.15;
+  const WORLD_ROTATION_DEGREES = 45;
 
   function markDirty(worldDirty, minimapDirty) {
     if (worldDirty !== false) {
@@ -265,6 +266,51 @@ window.Game = window.Game || {};
     };
   }
 
+
+  function getWorldCenter(metrics) {
+    const size = getWorldSize(metrics);
+    return {
+      x: size.width / 2,
+      z: size.depth / 2
+    };
+  }
+
+  function rotateAroundCenter(x, z, angleRad, center) {
+    const dx = x - center.x;
+    const dz = z - center.z;
+    const cosA = Math.cos(angleRad);
+    const sinA = Math.sin(angleRad);
+    return {
+      x: center.x + dx * cosA - dz * sinA,
+      z: center.z + dx * sinA + dz * cosA
+    };
+  }
+
+  function logicalToRenderXZ(x, z) {
+    const metrics = getGridMetrics();
+    return rotateAroundCenter(x, z, degToRad(WORLD_ROTATION_DEGREES), getWorldCenter(metrics));
+  }
+
+  function renderToLogicalXZ(x, z) {
+    const metrics = getGridMetrics();
+    return rotateAroundCenter(x, z, degToRad(-WORLD_ROTATION_DEGREES), getWorldCenter(metrics));
+  }
+
+
+  function convertRenderDeltaToCameraDelta(renderDx, renderDz) {
+    const angleRad = degToRad(WORLD_ROTATION_DEGREES);
+    const cosA = Math.cos(angleRad);
+    const sinA = Math.sin(angleRad);
+
+    const logicalDx = renderDx * cosA + renderDz * sinA;
+    const logicalDz = -renderDx * sinA + renderDz * cosA;
+
+    return {
+      dx: -logicalDx,
+      dy: -logicalDz
+    };
+  }
+
   function getCameraTarget(metrics) {
     const size = getWorldSize(metrics);
     return {
@@ -297,13 +343,14 @@ window.Game = window.Game || {};
     const aspect = Math.max(0.001, canvas.clientWidth / Math.max(1, canvas.clientHeight));
     const pitchRad = degToRad(clampPitch(State.camera.pitchAngle || 90));
     const target = getCameraTarget(metrics);
+    const renderTarget = logicalToRenderXZ(target.x, target.z);
     const distance = getCameraDistance(metrics, aspect, pitchRad);
     const eye = [
-      target.x,
+      renderTarget.x,
       Math.max(2, Math.sin(pitchRad) * distance),
-      target.z - Math.max(2, Math.cos(pitchRad) * distance)
+      renderTarget.z + Math.max(2, Math.cos(pitchRad) * distance)
     ];
-    const targetVec = [target.x, WORLD_SURFACE_Y, target.z];
+    const targetVec = [renderTarget.x, WORLD_SURFACE_Y, renderTarget.z];
     const up = [0, 1, 0];
 
     const size = getWorldSize(metrics);
@@ -328,7 +375,8 @@ window.Game = window.Game || {};
 
   function projectWorldToScreen(worldX, worldY, worldZ) {
     const pd = getProjectionData();
-    const clip = transformPoint(pd.viewProjection, worldX, worldY, worldZ, 1);
+    const rotated = logicalToRenderXZ(worldX, worldZ);
+    const clip = transformPoint(pd.viewProjection, rotated.x, worldY, rotated.z, 1);
     const invW = Math.abs(clip[3]) > EPSILON ? 1 / clip[3] : 1;
     const ndcX = clip[0] * invW;
     const ndcY = clip[1] * invW;
@@ -355,10 +403,11 @@ window.Game = window.Game || {};
     const t = (WORLD_SURFACE_Y - near[1]) / direction[1];
     if (t < 0) return null;
 
-    return {
+    const renderHit = {
       x: near[0] + direction[0] * t,
       z: near[2] + direction[2] * t
     };
+    return renderToLogicalXZ(renderHit.x, renderHit.z);
   }
 
   function gridToWorld(row, col, tileWidth) {
@@ -435,9 +484,9 @@ window.Game = window.Game || {};
 
   function updateZoomLimits() {
     const camera = State.camera;
-    camera.minZoom = 0.08;
+    camera.minZoom = 2.00;
     if (camera.maxZoom <= camera.minZoom) {
-      camera.maxZoom = Math.max(camera.minZoom + 0.5, 2.2);
+      camera.maxZoom = Math.max(camera.minZoom + 0.5, 4.00);
     }
     if (camera.zoom < camera.minZoom) camera.zoom = camera.minZoom;
   }
@@ -629,11 +678,18 @@ window.Game = window.Game || {};
   function getRectOutlineVertices3D(centerX, centerZ, width, depth, y) {
     const halfW = width / 2;
     const halfD = depth / 2;
+    const corners = [
+      { x: centerX - halfW, z: centerZ - halfD },
+      { x: centerX + halfW, z: centerZ - halfD },
+      { x: centerX + halfW, z: centerZ + halfD },
+      { x: centerX - halfW, z: centerZ + halfD }
+    ].map((point) => logicalToRenderXZ(point.x, point.z));
+
     return [
-      centerX - halfW, y, centerZ - halfD,
-      centerX + halfW, y, centerZ - halfD,
-      centerX + halfW, y, centerZ + halfD,
-      centerX - halfW, y, centerZ + halfD
+      corners[0].x, y, corners[0].z,
+      corners[1].x, y, corners[1].z,
+      corners[2].x, y, corners[2].z,
+      corners[3].x, y, corners[3].z
     ];
   }
 
@@ -669,19 +725,34 @@ window.Game = window.Game || {};
     const hz = bz + uz * headLength;
     const y = MARKER_Y;
 
-    drawTriangles(gl, [
-      sx + px * bodyHalf, y, sz + pz * bodyHalf,
-      sx - px * bodyHalf, y, sz - pz * bodyHalf,
-      bx + px * bodyHalf, y, bz + pz * bodyHalf,
-      bx + px * bodyHalf, y, bz + pz * bodyHalf,
-      sx - px * bodyHalf, y, sz - pz * bodyHalf,
-      bx - px * bodyHalf, y, bz - pz * bodyHalf
-    ], [0.39, 0.07, 0.18, 0.72]);
+    const bodyPoints = [
+      { x: sx + px * bodyHalf, z: sz + pz * bodyHalf },
+      { x: sx - px * bodyHalf, z: sz - pz * bodyHalf },
+      { x: bx + px * bodyHalf, z: bz + pz * bodyHalf },
+      { x: bx + px * bodyHalf, z: bz + pz * bodyHalf },
+      { x: sx - px * bodyHalf, z: sz - pz * bodyHalf },
+      { x: bx - px * bodyHalf, z: bz - pz * bodyHalf }
+    ].map((point) => logicalToRenderXZ(point.x, point.z));
 
     drawTriangles(gl, [
-      bx + px * headHalf, y, bz + pz * headHalf,
-      bx - px * headHalf, y, bz - pz * headHalf,
-      hx, y, hz
+      bodyPoints[0].x, y, bodyPoints[0].z,
+      bodyPoints[1].x, y, bodyPoints[1].z,
+      bodyPoints[2].x, y, bodyPoints[2].z,
+      bodyPoints[3].x, y, bodyPoints[3].z,
+      bodyPoints[4].x, y, bodyPoints[4].z,
+      bodyPoints[5].x, y, bodyPoints[5].z
+    ], [0.39, 0.07, 0.18, 0.72]);
+
+    const headPoints = [
+      { x: bx + px * headHalf, z: bz + pz * headHalf },
+      { x: bx - px * headHalf, z: bz - pz * headHalf },
+      { x: hx, z: hz }
+    ].map((point) => logicalToRenderXZ(point.x, point.z));
+
+    drawTriangles(gl, [
+      headPoints[0].x, y, headPoints[0].z,
+      headPoints[1].x, y, headPoints[1].z,
+      headPoints[2].x, y, headPoints[2].z
     ], [0.57, 0.13, 0.27, 0.94]);
   }
 
@@ -848,13 +919,18 @@ window.Game = window.Game || {};
     const width = world.cols * metrics.tileWidth;
     const depth = world.rows * metrics.tileHeight;
 
+    const c00 = logicalToRenderXZ(0, 0);
+    const c10 = logicalToRenderXZ(width, 0);
+    const c01 = logicalToRenderXZ(0, depth);
+    const c11 = logicalToRenderXZ(width, depth);
+
     const positions = [
-      0, WORLD_SURFACE_Y, 0,
-      width, WORLD_SURFACE_Y, 0,
-      0, WORLD_SURFACE_Y, depth,
-      0, WORLD_SURFACE_Y, depth,
-      width, WORLD_SURFACE_Y, 0,
-      width, WORLD_SURFACE_Y, depth
+      c00.x, WORLD_SURFACE_Y, c00.z,
+      c10.x, WORLD_SURFACE_Y, c10.z,
+      c01.x, WORLD_SURFACE_Y, c01.z,
+      c01.x, WORLD_SURFACE_Y, c01.z,
+      c10.x, WORLD_SURFACE_Y, c10.z,
+      c11.x, WORLD_SURFACE_Y, c11.z
     ];
 
     const texCoords = [
@@ -892,12 +968,16 @@ window.Game = window.Game || {};
 
     for (let col = 0; col <= world.cols; col++) {
       const x = col * metrics.tileWidth;
-      lineVertices.push(x, GRID_OVERLAY_Y, 0, x, GRID_OVERLAY_Y, depth);
+      const start = logicalToRenderXZ(x, 0);
+      const end = logicalToRenderXZ(x, depth);
+      lineVertices.push(start.x, GRID_OVERLAY_Y, start.z, end.x, GRID_OVERLAY_Y, end.z);
     }
 
     for (let row = 0; row <= world.rows; row++) {
       const z = row * metrics.tileHeight;
-      lineVertices.push(0, GRID_OVERLAY_Y, z, width, GRID_OVERLAY_Y, z);
+      const start = logicalToRenderXZ(0, z);
+      const end = logicalToRenderXZ(width, z);
+      lineVertices.push(start.x, GRID_OVERLAY_Y, start.z, end.x, GRID_OVERLAY_Y, end.z);
     }
 
     drawLines(gl, lineVertices, [0.12, 0.17, 0.21, 0.55]);
@@ -955,6 +1035,7 @@ window.Game = window.Game || {};
     updateCameraFollow,
     calculateFitZoom,
     updateZoomLimits,
-    fitCameraToWorld
+    fitCameraToWorld,
+    convertRenderDeltaToCameraDelta
   };
 })();

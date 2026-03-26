@@ -24,18 +24,20 @@ window.Game = window.Game || {};
     const width = dom.minimap.clientWidth;
     const height = dom.minimap.clientHeight;
     const padding = Math.max(8, Math.min(16, Math.floor(Math.min(width, height) * 0.08)));
-    const tileSize = Math.max(2, Math.min((width - padding * 2) / Math.max(1, world.cols), (height - padding * 2) / Math.max(1, world.rows)));
-    const mapWidth = world.cols * tileSize;
-    const mapHeight = world.rows * tileSize;
-    const originX = (width - mapWidth) / 2;
+    const sum = Math.max(1, world.cols + world.rows);
+    const halfW = Math.max(2, Math.min((width - padding * 2) / sum, (height - padding * 2) / (sum * 0.5)));
+    const halfH = Math.max(1, halfW * 0.5);
+    const mapWidth = sum * halfW;
+    const mapHeight = sum * halfH;
+    const centerX = width / 2;
     const originY = (height - mapHeight) / 2;
     return {
       width,
       height,
-      originX,
+      centerX,
       originY,
-      miniTileWidth: tileSize,
-      miniTileHeight: tileSize,
+      miniHalfW: halfW,
+      miniHalfH: halfH,
       mapWidth,
       mapHeight
     };
@@ -43,27 +45,31 @@ window.Game = window.Game || {};
 
   function gridToMinimap(row, col, layout) {
     return {
-      x: layout.originX + (col + 0.5) * layout.miniTileWidth,
-      y: layout.originY + (row + 0.5) * layout.miniTileHeight
-    };
-  }
-
-  function worldToMinimap(worldX, worldZ, layout) {
-    const tileWidth = State.world.tileWidth || 1;
-    const tileHeight = tileWidth;
-    const col = worldX / tileWidth - 0.5;
-    const row = worldZ / tileHeight - 0.5;
-    return {
-      x: layout.originX + (col + 0.5) * layout.miniTileWidth,
-      y: layout.originY + (row + 0.5) * layout.miniTileHeight
+      x: layout.centerX + (col - row) * layout.miniHalfW,
+      y: layout.originY + (row + col + 1) * layout.miniHalfH
     };
   }
 
   function screenToGridOnMinimap(x, y, layout) {
-    const col = Math.floor((x - layout.originX) / layout.miniTileWidth);
-    const row = Math.floor((y - layout.originY) / layout.miniTileHeight);
-    if (row < 0 || col < 0 || row >= State.world.rows || col >= State.world.cols) return null;
-    return { row, col };
+    const isoX = (x - layout.centerX) / Math.max(0.0001, layout.miniHalfW);
+    const isoY = (y - layout.originY) / Math.max(0.0001, layout.miniHalfH) - 1;
+    const col = (isoY + isoX) / 2;
+    const row = (isoY - isoX) / 2;
+    const roundedRow = Math.round(row);
+    const roundedCol = Math.round(col);
+    if (roundedRow < 0 || roundedCol < 0 || roundedRow >= State.world.rows || roundedCol >= State.world.cols) return null;
+    return { row: roundedRow, col: roundedCol };
+  }
+
+  function drawDiamond(ctx, cx, cy, halfW, halfH, fillStyle) {
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - halfH);
+    ctx.lineTo(cx + halfW, cy);
+    ctx.lineTo(cx, cy + halfH);
+    ctx.lineTo(cx - halfW, cy);
+    ctx.closePath();
+    ctx.fillStyle = fillStyle;
+    ctx.fill();
   }
 
   function drawViewportFrame(layout) {
@@ -79,10 +85,7 @@ window.Game = window.Game || {};
     const corners = worldCorners.map((p) => {
       const clampedRow = clamp(p.row, 0, State.world.rows - 1);
       const clampedCol = clamp(p.col, 0, State.world.cols - 1);
-      return {
-        x: layout.originX + (clampedCol + 0.5) * layout.miniTileWidth,
-        y: layout.originY + (clampedRow + 0.5) * layout.miniTileHeight
-      };
+      return gridToMinimap(clampedRow, clampedCol, layout);
     });
 
     ctx.save();
@@ -110,10 +113,8 @@ window.Game = window.Game || {};
 
     for (let row = 0; row < world.rows; row++) {
       for (let col = 0; col < world.cols; col++) {
-        const x = layout.originX + col * layout.miniTileWidth;
-        const y = layout.originY + row * layout.miniTileHeight;
-        ctx.fillStyle = Renderer.terrainColor(world.terrain[row][col]);
-        ctx.fillRect(x, y, layout.miniTileWidth + 0.5, layout.miniTileHeight + 0.5);
+        const p = gridToMinimap(row, col, layout);
+        drawDiamond(ctx, p.x, p.y, layout.miniHalfW, layout.miniHalfH, Renderer.terrainColor(world.terrain[row][col]));
       }
     }
 
@@ -121,7 +122,7 @@ window.Game = window.Game || {};
 
     const playerPos = gridToMinimap(world.player.row, world.player.col, layout);
     ctx.beginPath();
-    ctx.arc(playerPos.x, playerPos.y, Math.max(2, layout.miniTileWidth * 0.35), 0, Math.PI * 2);
+    ctx.arc(playerPos.x, playerPos.y, Math.max(2, layout.miniHalfH * 0.9), 0, Math.PI * 2);
     ctx.fillStyle = '#f4f7fb';
     ctx.fill();
     ctx.strokeStyle = '#11151c';
