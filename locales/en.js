@@ -76,6 +76,12 @@ window.Game.Locales.en = {
     "dirtArea": "Dirt Area Ratio",
     "waterArea": "Water Area Ratio",
     "stoneArea": "Stone Area Ratio",
+    "reliefEnabled": "Enable Relief Shading",
+    "sunAzimuth": "Sun Direction (Azimuth)",
+    "sunElevation": "Sun Height",
+    "shadowStrength": "Shadow Strength",
+    "highlightStrength": "Highlight Strength",
+    "shadowLength": "Shadow Length",
     "note": "These fields are derived only from the SEED and map size. Manual editing is disabled. When the same SEED and dimensions are entered, the application regenerates the same topology and terrain distribution.",
     "groups": {
       "topology": "Topology",

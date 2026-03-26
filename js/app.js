@@ -83,13 +83,51 @@ window.Game = window.Game || {};
       Config.MIN_BLEND_STRENGTH,
       Config.MAX_BLEND_STRENGTH
     );
+    const noiseGridDivisions = Utils.clamp(
+      Number(dom.noiseGridDivisionsInput && dom.noiseGridDivisionsInput.value) || Config.DEFAULT_NOISE_GRID_DIVISIONS,
+      Config.MIN_NOISE_GRID_DIVISIONS,
+      Config.MAX_NOISE_GRID_DIVISIONS
+    );
     const showGrid = !!(dom.showGridInput && dom.showGridInput.checked);
+    const reliefEnabled = !!(dom.reliefEnabledInput && dom.reliefEnabledInput.checked);
+    const sunAzimuth = Utils.clamp(
+      Number(dom.sunAzimuthInput && dom.sunAzimuthInput.value) || Config.DEFAULT_SUN_AZIMUTH,
+      Config.MIN_SUN_AZIMUTH,
+      Config.MAX_SUN_AZIMUTH
+    );
+    const sunElevation = Utils.clamp(
+      Number(dom.sunElevationInput && dom.sunElevationInput.value) || Config.DEFAULT_SUN_ELEVATION,
+      Config.MIN_SUN_ELEVATION,
+      Config.MAX_SUN_ELEVATION
+    );
+    const shadowStrength = Utils.clamp(
+      Number(dom.shadowStrengthInput && dom.shadowStrengthInput.value) || Config.DEFAULT_SHADOW_STRENGTH,
+      Config.MIN_SHADOW_STRENGTH,
+      Config.MAX_SHADOW_STRENGTH
+    );
+    const highlightStrength = Utils.clamp(
+      Number(dom.highlightStrengthInput && dom.highlightStrengthInput.value) || Config.DEFAULT_HIGHLIGHT_STRENGTH,
+      Config.MIN_HIGHLIGHT_STRENGTH,
+      Config.MAX_HIGHLIGHT_STRENGTH
+    );
+    const shadowLength = Utils.clamp(
+      Number(dom.shadowLengthInput && dom.shadowLengthInput.value) || Config.DEFAULT_SHADOW_LENGTH,
+      Config.MIN_SHADOW_LENGTH,
+      Config.MAX_SHADOW_LENGTH
+    );
 
     State.camera.pitchAngle = pitchAngle;
     State.camera.depthStrength = depthStrength;
     State.camera.blendPixelSize = blendPixelSize;
     State.camera.blendStrength = blendStrength;
+    State.camera.noiseGridDivisions = noiseGridDivisions;
     State.camera.showGrid = showGrid;
+    State.camera.reliefEnabled = reliefEnabled;
+    State.camera.sunAzimuth = sunAzimuth;
+    State.camera.sunElevation = sunElevation;
+    State.camera.shadowStrength = shadowStrength;
+    State.camera.highlightStrength = highlightStrength;
+    State.camera.shadowLength = shadowLength;
     rebuildWorld(seed, cols, rows);
     UI.closeSettingsModal();
     UI.addLog(I18n.t("logs.settingsApplied", { seed, cols, rows }));

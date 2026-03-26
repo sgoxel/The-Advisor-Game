@@ -53,7 +53,14 @@ window.Game = window.Game || {};
       depthStrength: Config.DEFAULT_DEPTH_STRENGTH,
       showGrid: Config.DEFAULT_SHOW_GRID,
       blendPixelSize: Config.DEFAULT_BLEND_PIXEL_SIZE,
-      blendStrength: Config.DEFAULT_BLEND_STRENGTH
+      blendStrength: Config.DEFAULT_BLEND_STRENGTH,
+      noiseGridDivisions: Config.DEFAULT_NOISE_GRID_DIVISIONS,
+      reliefEnabled: Config.DEFAULT_RELIEF_ENABLED,
+      sunAzimuth: Config.DEFAULT_SUN_AZIMUTH,
+      sunElevation: Config.DEFAULT_SUN_ELEVATION,
+      shadowStrength: Config.DEFAULT_SHADOW_STRENGTH,
+      highlightStrength: Config.DEFAULT_HIGHLIGHT_STRENGTH,
+      shadowLength: Config.DEFAULT_SHADOW_LENGTH
     },
 
     input: {
@@ -88,7 +95,14 @@ window.Game = window.Game || {};
       depthStrengthInput: null,
       blendPixelSizeInput: null,
       blendStrengthInput: null,
+      noiseGridDivisionsInput: null,
       showGridInput: null,
+      reliefEnabledInput: null,
+      sunAzimuthInput: null,
+      sunElevationInput: null,
+      shadowStrengthInput: null,
+      highlightStrengthInput: null,
+      shadowLengthInput: null,
 
       dialogText: null,
       languageSelect: null,

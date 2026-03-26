@@ -76,6 +76,12 @@ window.Game.Locales.tr = {
     "dirtArea": "Toprak Alan Oranı",
     "waterArea": "Su Alan Oranı",
     "stoneArea": "Taşlık Alan Oranı",
+    "reliefEnabled": "Kabartı Gölgelendirmesini Etkinleştir",
+    "sunAzimuth": "Güneş Yönü (Azimut)",
+    "sunElevation": "Güneş Yüksekliği",
+    "shadowStrength": "Gölge Şiddeti",
+    "highlightStrength": "Aydınlık Kenar Şiddeti",
+    "shadowLength": "Gölge Uzunluğu",
     "note": "Bu alanlar yalnızca SEED ve harita boyutundan türetilir. Manuel düzenleme kapalıdır. Aynı SEED ve aynı boyutlar girildiğinde uygulama aynı topoloji ve arazi dağılımını tekrar üretir.",
     "groups": {
       "topology": "Topoloji",

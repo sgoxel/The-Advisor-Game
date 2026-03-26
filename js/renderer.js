@@ -529,17 +529,11 @@ window.Game = window.Game || {};
   function terrainColor(tile) {
     switch (tile.type) {
       case "grass": return "#5a9b5f";
-      case "grass2": return "#6aaa6c";
       case "dirt": return "#a57b4e";
-      case "dirtHill": return "#9a7348";
-      case "stone": return "#8f949d";
-      case "hillStone": return "#8a8e96";
-      case "hillGrass": return "#6b965e";
-      case "water": return "#4b79b4";
+      case "mountain": return "#8a8e96";
+      case "lake": return "#4b79b4";
+      case "river": return "#4b79b4";
       case "road": return "#b99b68";
-      case "forest": return "#3f7345";
-      case "forestHill": return "#43684a";
-      case "settlement": return "#b8b2a0";
       default: return "#5a9b5f";
     }
   }
@@ -561,6 +555,307 @@ window.Game = window.Game || {};
       g: Math.round(a.g + (b.g - a.g) * t),
       b: Math.round(a.b + (b.b - a.b) * t)
     };
+  }
+
+
+  function clamp01(value) {
+    return Math.max(0, Math.min(1, value));
+  }
+
+  function clampByte(value) {
+    return Math.max(0, Math.min(255, Math.round(value)));
+  }
+
+  function scaleRgb(color, factor) {
+    return {
+      r: clampByte(color.r * factor),
+      g: clampByte(color.g * factor),
+      b: clampByte(color.b * factor)
+    };
+  }
+
+  function addRgb(color, amount) {
+    return {
+      r: clampByte(color.r + amount),
+      g: clampByte(color.g + amount),
+      b: clampByte(color.b + amount)
+    };
+  }
+
+  function getTile(row, col) {
+    const terrainRow = State.world.terrain[row];
+    return terrainRow && terrainRow[col] ? terrainRow[col] : null;
+  }
+
+  function getRenderLevel(tile) {
+    if (!tile) return 1;
+    if (tile.type === "lake" || tile.type === "river") {
+      return 0;
+    }
+    if (tile.type === "mountain") {
+      return 3;
+    }
+    if (tile.type === "road" || (tile.tags && tile.tags.has("forest"))) {
+      return 2;
+    }
+    if (tile.type === "grass" || tile.type === "dirt") {
+      return 1;
+    }
+    return 1;
+  }
+
+  function getSunDirection() {
+    const azimuth = degToRad(State.camera.sunAzimuth || 0);
+    return {
+      x: Math.cos(azimuth),
+      y: Math.sin(azimuth)
+    };
+  }
+
+  function sampleLevelAt(rowFloat, colFloat) {
+    const world = State.world;
+    const row = Math.max(0, Math.min(world.rows - 1, Math.floor(rowFloat)));
+    const col = Math.max(0, Math.min(world.cols - 1, Math.floor(colFloat)));
+    return getRenderLevel(getTile(row, col));
+  }
+
+  function sampleTypeAt(rowFloat, colFloat) {
+    const world = State.world;
+    const row = Math.max(0, Math.min(world.rows - 1, Math.floor(rowFloat)));
+    const col = Math.max(0, Math.min(world.cols - 1, Math.floor(colFloat)));
+    const tile = getTile(row, col);
+    return tile ? tile.type : null;
+  }
+
+  function distanceToTypeBoundary(rowFloat, colFloat, dirY, dirX, targetType, maxDistance, stepSize) {
+    let lastInside = 0;
+    for (let t = stepSize; t <= maxDistance; t += stepSize) {
+      const sampleRow = rowFloat + dirY * t;
+      const sampleCol = colFloat + dirX * t;
+      if (sampleTypeAt(sampleRow, sampleCol) !== targetType) {
+        return t;
+      }
+      lastInside = t;
+    }
+    return Math.min(maxDistance, lastInside + stepSize);
+  }
+
+  function computeMountainGroupRelief(seed, rowFloat, colFloat, baseRow, baseCol, sun) {
+    const currentType = sampleTypeAt(baseRow + 0.001, baseCol + 0.001);
+    if (currentType !== 'mountain') {
+      return null;
+    }
+
+    const maxDistance = 3.2;
+    const stepSize = 0.18;
+
+    const facingBoundaryDistance = distanceToTypeBoundary(
+      rowFloat,
+      colFloat,
+      sun.y,
+      sun.x,
+      'mountain',
+      maxDistance,
+      stepSize
+    );
+
+    const facingOpenLevel = sampleLevelAt(
+      rowFloat + sun.y * Math.min(facingBoundaryDistance + 0.2, maxDistance),
+      colFloat + sun.x * Math.min(facingBoundaryDistance + 0.2, maxDistance)
+    );
+
+    const currentLevel = getRenderLevel(getTile(baseRow, baseCol));
+    const edgeHighlight = clamp01(1 - ((facingBoundaryDistance - stepSize) / maxDistance));
+
+    let highlightAmount = edgeHighlight * clamp01((currentLevel - facingOpenLevel) / 3);
+
+    const sunElevation = degToRad(State.camera.sunElevation || 45);
+    const elevationHighlightScale = 0.55 + clamp01(sunElevation / (Math.PI / 2)) * 0.45;
+    const noise = RNG.hashNoise(
+      seed,
+      Math.floor(rowFloat * 977) + baseRow * 11,
+      Math.floor(colFloat * 983) + baseCol * 17,
+      'relief-light'
+    );
+    const noiseFactor = 0.94 + noise * 0.12;
+
+    return {
+      shadowAmount: 0,
+      highlightAmount: clamp01(highlightAmount * elevationHighlightScale * noiseFactor),
+      edgeAmount: edgeHighlight
+    };
+  }
+
+  function computeReliefLight(seed, rowFloat, colFloat) {
+    if (!State.camera.reliefEnabled) {
+      return { shadowAmount: 0, highlightAmount: 0, edgeAmount: 0 };
+    }
+
+    const world = State.world;
+    const baseRow = Math.max(0, Math.min(world.rows - 1, Math.floor(rowFloat)));
+    const baseCol = Math.max(0, Math.min(world.cols - 1, Math.floor(colFloat)));
+    const currentTile = getTile(baseRow, baseCol);
+    const currentLevel = getRenderLevel(currentTile);
+    const sun = getSunDirection();
+
+    if (currentTile && currentTile.type === 'mountain') {
+      const mountainRelief = computeMountainGroupRelief(seed, rowFloat, colFloat, baseRow, baseCol, sun);
+      if (mountainRelief) {
+        return mountainRelief;
+      }
+    }
+
+    const shadowMaxDistance = Math.max(0.5, Number(State.camera.shadowLength) || 5.4);
+    const shadowStepSize = 0.18;
+    let firstHigherDistance = null;
+
+    for (let t = shadowStepSize; t <= shadowMaxDistance; t += shadowStepSize) {
+      const sampleRow = rowFloat + sun.y * t;
+      const sampleCol = colFloat + sun.x * t;
+
+      if (sampleRow < 0 || sampleCol < 0 || sampleRow >= world.rows || sampleCol >= world.cols) {
+        break;
+      }
+
+      const sampleTile = getTile(Math.floor(sampleRow), Math.floor(sampleCol));
+      const sampleLevel = getRenderLevel(sampleTile);
+      if (sampleLevel > currentLevel) {
+        firstHigherDistance = t;
+        break;
+      }
+    }
+
+    if (firstHigherDistance === null) {
+      return { shadowAmount: 0, highlightAmount: 0, edgeAmount: 0 };
+    }
+
+    const shadowEdgeAmount = clamp01(1 - ((firstHigherDistance - shadowStepSize) / shadowMaxDistance));
+
+    let shadowDiff = 0;
+    const sampleSteps = [0.65, 1.35, 2.05];
+    for (let i = 0; i < sampleSteps.length; i++) {
+      const step = sampleSteps[i];
+      const weight = i === 0 ? 1.0 : (i === 1 ? 0.65 : 0.35);
+
+      const blockerLevel = sampleLevelAt(
+        rowFloat + sun.y * (firstHigherDistance + step),
+        colFloat + sun.x * (firstHigherDistance + step)
+      );
+
+      shadowDiff += Math.max(0, blockerLevel - currentLevel) * weight;
+    }
+
+    const sunElevation = degToRad(State.camera.sunElevation || 45);
+    const elevationShadowScale = 1.05 - clamp01(sunElevation / (Math.PI / 2)) * 0.55;
+    const noise = RNG.hashNoise(
+      seed,
+      Math.floor(rowFloat * 977) + baseRow * 11,
+      Math.floor(colFloat * 983) + baseCol * 17,
+      'relief-light'
+    );
+    const noiseFactor = 0.94 + noise * 0.12;
+
+    return {
+      shadowAmount: clamp01((shadowDiff / 3) * elevationShadowScale * noiseFactor * shadowEdgeAmount),
+      highlightAmount: 0,
+      edgeAmount: shadowEdgeAmount
+    };
+  }
+
+  function applyReliefLighting(baseColor, lightInfo) {
+    if (!State.camera.reliefEnabled) return baseColor;
+    const shadowStrength = Math.max(0, State.camera.shadowStrength || 0);
+    const highlightStrength = Math.max(0, State.camera.highlightStrength || 0);
+    const shadowFactor = 1 - (lightInfo.shadowAmount * shadowStrength * (0.65 + lightInfo.edgeAmount * 0.35));
+    const highlightAmount = lightInfo.highlightAmount * highlightStrength * (0.35 + lightInfo.edgeAmount * 0.65) * 72;
+    const shadowed = scaleRgb(baseColor, shadowFactor);
+    return addRgb(shadowed, highlightAmount);
+  }
+
+
+  function luminance(color) {
+    return color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722;
+  }
+
+  function getPixelColor(pixels, width, x, y) {
+    const safeX = Math.max(0, Math.min(width - 1, x));
+    const safeY = Math.max(0, Math.min(State.render.worldBackgroundCanvas.height - 1, y));
+    const idx = (safeY * width + safeX) * 4;
+    return {
+      r: pixels[idx],
+      g: pixels[idx + 1],
+      b: pixels[idx + 2]
+    };
+  }
+
+  function writeRect(pixels, width, x0, y0, x1, y1, color) {
+    const minX = Math.max(0, Math.floor(x0));
+    const minY = Math.max(0, Math.floor(y0));
+    const maxX = Math.min(width, Math.ceil(x1));
+    const maxY = Math.min(State.render.worldBackgroundCanvas.height, Math.ceil(y1));
+    for (let py = minY; py < maxY; py++) {
+      for (let px = minX; px < maxX; px++) {
+        const idx = (py * width + px) * 4;
+        pixels[idx] = color.r;
+        pixels[idx + 1] = color.g;
+        pixels[idx + 2] = color.b;
+        pixels[idx + 3] = 255;
+      }
+    }
+  }
+
+  function pickNoiseLevel(levels, noiseValue) {
+    const scaled = Math.floor(clamp01(noiseValue) * levels.length);
+    const index = Math.max(0, Math.min(levels.length - 1, scaled >= levels.length ? levels.length - 1 : scaled));
+    return levels[index];
+  }
+
+  function applyPostTileNoise(pixels, canvasWidth, canvasHeight, cellWidth, cellHeight, seed) {
+    const world = State.world;
+    const divisions = Math.max(1, Math.round(State.camera.noiseGridDivisions || 1));
+
+    for (let row = 0; row < world.rows; row++) {
+      const y0 = row * cellHeight;
+      const y1 = (row + 1) * cellHeight;
+      for (let col = 0; col < world.cols; col++) {
+        const x0 = col * cellWidth;
+        const x1 = (col + 1) * cellWidth;
+
+        for (let gy = 0; gy < divisions; gy++) {
+          const gy0 = y0 + (y1 - y0) * (gy / divisions);
+          const gy1 = y0 + (y1 - y0) * ((gy + 1) / divisions);
+          for (let gx = 0; gx < divisions; gx++) {
+            const gx0 = x0 + (x1 - x0) * (gx / divisions);
+            const gx1 = x0 + (x1 - x0) * ((gx + 1) / divisions);
+            const sampleX = Math.max(0, Math.min(canvasWidth - 1, Math.floor((gx0 + gx1) * 0.5)));
+            const sampleY = Math.max(0, Math.min(canvasHeight - 1, Math.floor((gy0 + gy1) * 0.5)));
+            const rowFloat = (sampleY + 0.5) / cellHeight;
+            const colFloat = (sampleX + 0.5) / cellWidth;
+
+            const currentColor = getPixelColor(pixels, canvasWidth, sampleX, sampleY);
+            const blendedBase = buildBlendColor(seed, rowFloat, colFloat);
+            const currentLum = luminance(currentColor);
+            const baseLum = luminance(blendedBase);
+            const diff = currentLum - baseLum;
+            const shadeNoise = RNG.hashNoise(seed, row * 991 + gy * 41, col * 977 + gx * 59, `tile-noise|${divisions}`);
+
+            let delta;
+            if (diff < -6) {
+              const shadowLevels = [-20, -16, -12, -8, -5];
+              delta = pickNoiseLevel(shadowLevels, shadeNoise);
+            } else if (diff > 6) {
+              const lightLevels = [5, 8, 12, 16, 20];
+              delta = pickNoiseLevel(lightLevels, shadeNoise);
+            } else {
+              const midLevels = [-8, -4, 0, 4, 8];
+              delta = pickNoiseLevel(midLevels, shadeNoise);
+            }
+
+            writeRect(pixels, canvasWidth, gx0, gy0, gx1, gy1, addRgb(currentColor, delta));
+          }
+        }
+      }
+    }
   }
 
   function writeBlock(pixels, canvasWidth, x0, y0, size, color) {
@@ -1017,9 +1312,10 @@ window.Game = window.Game || {};
         const sampleY = Math.min(canvas.height - 1, y + blockSize * 0.5);
         const colFloat = sampleX / cellWidth;
         const rowFloat = sampleY / cellHeight;
-        const col = Math.max(0, Math.min(world.cols - 1, Math.floor(colFloat)));
-        const row = Math.max(0, Math.min(world.rows - 1, Math.floor(rowFloat)));
-        const color = buildBlendColor(seed, rowFloat, colFloat);
+        const color = applyReliefLighting(
+          buildBlendColor(seed, rowFloat, colFloat),
+          computeReliefLight(seed, rowFloat, colFloat)
+        );
         const maxX = Math.min(canvas.width, x + blockSize);
         const maxY = Math.min(canvas.height, y + blockSize);
         for (let py = y; py < maxY; py++) {
@@ -1034,6 +1330,7 @@ window.Game = window.Game || {};
       }
     }
 
+    applyPostTileNoise(pixels, canvas.width, canvas.height, cellWidth, cellHeight, seed);
     ctx.putImageData(imageData, 0, 0);
     render.needsBackgroundRebuild = false;
     render.needsBackgroundUpload = true;
@@ -1169,6 +1466,7 @@ window.Game = window.Game || {};
     renderWorld,
     drawTile,
     terrainColor,
+    getRenderLevel,
     markDirty,
     getHexMetrics: getGridMetrics,
     getGridMetrics,

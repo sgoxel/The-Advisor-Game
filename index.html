@@ -51,8 +51,42 @@
             </label>
 
             <label class="form-field">
+              <span>Noise Grid Divisions</span>
+              <input id="noiseGridDivisionsInput" type="number" min="1" max="40" step="1" value="10" />
+            </label>
+
+            <label class="form-field">
               <span>Show Grid Overlay</span>
               <input id="showGridInput" type="checkbox" />
+            </label>
+            <label class="form-field">
+              <span data-i18n="settings.reliefEnabled">Enable Relief Shading</span>
+              <input id="reliefEnabledInput" type="checkbox" checked />
+            </label>
+
+            <label class="form-field">
+              <span data-i18n="settings.sunAzimuth">Sun Direction (Azimuth)</span>
+              <input id="sunAzimuthInput" type="number" min="0" max="359" step="1" value="315" />
+            </label>
+
+            <label class="form-field">
+              <span data-i18n="settings.sunElevation">Sun Height</span>
+              <input id="sunElevationInput" type="number" min="5" max="85" step="1" value="38" />
+            </label>
+
+            <label class="form-field">
+              <span data-i18n="settings.shadowStrength">Shadow Strength</span>
+              <input id="shadowStrengthInput" type="number" min="0" max="1" step="0.05" value="0.34" />
+            </label>
+
+            <label class="form-field">
+              <span data-i18n="settings.highlightStrength">Highlight Strength</span>
+              <input id="highlightStrengthInput" type="number" min="0" max="1" step="0.05" value="0.22" />
+            </label>
+
+            <label class="form-field">
+              <span data-i18n="settings.shadowLength">Shadow Length</span>
+              <input id="shadowLengthInput" type="number" min="1" max="12" step="0.1" value="5.4" />
             </label>
           </div>
 

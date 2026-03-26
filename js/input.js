@@ -36,7 +36,7 @@ window.Game = window.Game || {};
   function isBlockedTile(row, col) {
     const tile = getTile(row, col);
     if (!tile) return true;
-    if (tile.type === 'water' || tile.type === 'forest' || tile.type === 'forestHill' || tile.type === 'hillStone') return true;
+    if (tile.type === 'lake' || tile.type === 'river' || tile.type === 'mountain') return true;
     if (tile.blocked === true || tile.obstacle === true) return true;
     if (tile.tags && (tile.tags.has('obstacle') || tile.tags.has('blocked'))) return true;
     return false;
@@ -49,8 +49,8 @@ window.Game = window.Game || {};
 
     const diagonalFactor = diagonal ? 1.4142 : 1.0;
     const onRoad = tile.type === 'road' || (tile.tags && tile.tags.has('road'));
-    const onSettlement = tile.type === 'settlement';
-    const onHill = tile.type === 'hillGrass' || tile.type === 'dirtHill';
+    const onSettlement = false;
+    const onHill = false;
 
     let baseCost = 1.0;
     if (mode === 'roadPreferred') {

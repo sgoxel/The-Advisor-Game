@@ -36,7 +36,14 @@ window.Game = window.Game || {};
     dom.depthStrengthInput = document.getElementById("depthStrengthInput");
     dom.blendPixelSizeInput = document.getElementById("blendPixelSizeInput");
     dom.blendStrengthInput = document.getElementById("blendStrengthInput");
+    dom.noiseGridDivisionsInput = document.getElementById("noiseGridDivisionsInput");
     dom.showGridInput = document.getElementById("showGridInput");
+    dom.reliefEnabledInput = document.getElementById("reliefEnabledInput");
+    dom.sunAzimuthInput = document.getElementById("sunAzimuthInput");
+    dom.sunElevationInput = document.getElementById("sunElevationInput");
+    dom.shadowStrengthInput = document.getElementById("shadowStrengthInput");
+    dom.highlightStrengthInput = document.getElementById("highlightStrengthInput");
+    dom.shadowLengthInput = document.getElementById("shadowLengthInput");
 
     dom.dialogText = document.getElementById("dialogText");
     dom.languageSelect = document.getElementById("languageSelect");
@@ -77,7 +84,14 @@ window.Game = window.Game || {};
     dom.depthStrengthInput.value = State.camera.depthStrength;
     if (dom.blendPixelSizeInput) dom.blendPixelSizeInput.value = State.camera.blendPixelSize;
     if (dom.blendStrengthInput) dom.blendStrengthInput.value = State.camera.blendStrength;
+    if (dom.noiseGridDivisionsInput) dom.noiseGridDivisionsInput.value = State.camera.noiseGridDivisions;
     if (dom.showGridInput) dom.showGridInput.checked = !!State.camera.showGrid;
+    if (dom.reliefEnabledInput) dom.reliefEnabledInput.checked = !!State.camera.reliefEnabled;
+    if (dom.sunAzimuthInput) dom.sunAzimuthInput.value = State.camera.sunAzimuth;
+    if (dom.sunElevationInput) dom.sunElevationInput.value = State.camera.sunElevation;
+    if (dom.shadowStrengthInput) dom.shadowStrengthInput.value = State.camera.shadowStrength;
+    if (dom.highlightStrengthInput) dom.highlightStrengthInput.value = State.camera.highlightStrength;
+    if (dom.shadowLengthInput) dom.shadowLengthInput.value = State.camera.shadowLength;
   }
 
   function percent(value) { return I18n.t("paramValues.percent", { value }); }
