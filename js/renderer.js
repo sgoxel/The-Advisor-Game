@@ -8,6 +8,7 @@ window.Game = window.Game || {};
 (function () {
   const State = window.Game.State;
   const Config = window.Game.Config;
+  const RNG = window.Game.RNG;
 
   const COLOR_VERTEX_SHADER_SOURCE = `
     attribute vec3 a_position;
@@ -54,8 +55,6 @@ window.Game = window.Game || {};
   function markDirty(worldDirty, minimapDirty) {
     if (worldDirty !== false) {
       State.render.needsWorldRedraw = true;
-      State.render.needsBackgroundRebuild = true;
-      State.render.needsBackgroundUpload = true;
     }
     if (minimapDirty !== false) State.render.needsMinimapRedraw = true;
   }
@@ -545,6 +544,136 @@ window.Game = window.Game || {};
     }
   }
 
+
+  function hexToRgb(hex) {
+    const cleaned = hex.replace("#", "");
+    const value = parseInt(cleaned, 16);
+    return {
+      r: (value >> 16) & 255,
+      g: (value >> 8) & 255,
+      b: value & 255
+    };
+  }
+
+  function mixRgb(a, b, t) {
+    return {
+      r: Math.round(a.r + (b.r - a.r) * t),
+      g: Math.round(a.g + (b.g - a.g) * t),
+      b: Math.round(a.b + (b.b - a.b) * t)
+    };
+  }
+
+  function writeBlock(pixels, canvasWidth, x0, y0, size, color) {
+    const maxX = Math.min(canvasWidth, x0 + size);
+    const maxY = Math.min(State.render.worldBackgroundCanvas.height, y0 + size);
+    for (let y = y0; y < maxY; y++) {
+      for (let x = x0; x < maxX; x++) {
+        const idx = (y * canvasWidth + x) * 4;
+        pixels[idx] = color.r;
+        pixels[idx + 1] = color.g;
+        pixels[idx + 2] = color.b;
+        pixels[idx + 3] = 255;
+      }
+    }
+  }
+
+  function getTileType(row, col) {
+    const terrainRow = State.world.terrain[row];
+    const tile = terrainRow && terrainRow[col];
+    return tile ? tile.type : null;
+  }
+
+  function smoothstep01(t) {
+    const x = Math.max(0, Math.min(1, t));
+    return x * x * (3 - 2 * x);
+  }
+
+  function distanceToTileRect(rowFloat, colFloat, tileRow, tileCol) {
+    const minX = tileCol;
+    const maxX = tileCol + 1;
+    const minY = tileRow;
+    const maxY = tileRow + 1;
+    const dx = colFloat < minX ? (minX - colFloat) : (colFloat > maxX ? colFloat - maxX : 0);
+    const dy = rowFloat < minY ? (minY - rowFloat) : (rowFloat > maxY ? rowFloat - maxY : 0);
+    return Math.hypot(dx, dy);
+  }
+
+  function averageRgb(colors, weights) {
+    let total = 0;
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    for (let i = 0; i < colors.length; i++) {
+      const w = weights[i];
+      total += w;
+      r += colors[i].r * w;
+      g += colors[i].g * w;
+      b += colors[i].b * w;
+    }
+    if (total <= 0) return colors[0];
+    return {
+      r: Math.round(r / total),
+      g: Math.round(g / total),
+      b: Math.round(b / total)
+    };
+  }
+
+  function buildBlendColor(seed, rowFloat, colFloat) {
+    const world = State.world;
+    const baseRow = Math.max(0, Math.min(world.rows - 1, Math.floor(rowFloat)));
+    const baseCol = Math.max(0, Math.min(world.cols - 1, Math.floor(colFloat)));
+    const baseTile = world.terrain[baseRow][baseCol];
+    const baseType = baseTile.type;
+    const baseColor = hexToRgb(terrainColor(baseTile));
+    const blendStrength = Math.max(0, Math.min(0.5, State.camera.blendStrength || 0));
+    if (blendStrength <= 0) return baseColor;
+
+    const neighborColors = [];
+    const neighborWeights = [];
+    let strongestNeighbor = 0;
+
+    for (let row = baseRow - 1; row <= baseRow + 1; row++) {
+      for (let col = baseCol - 1; col <= baseCol + 1; col++) {
+        if (row < 0 || col < 0 || row >= world.rows || col >= world.cols) continue;
+        if (row === baseRow && col === baseCol) continue;
+
+        const type = getTileType(row, col);
+        if (!type || type === baseType) continue;
+
+        const distance = distanceToTileRect(rowFloat, colFloat, row, col);
+        if (distance >= blendStrength) continue;
+
+        const proximity = 1 - (distance / blendStrength);
+        let weight = smoothstep01(proximity);
+        if (weight <= 0) continue;
+
+        const noise = RNG.hashNoise(
+          seed,
+          Math.floor(rowFloat * 997) + row * 31,
+          Math.floor(colFloat * 991) + col * 17,
+          `blend-weight|${row}|${col}|${type}`
+        );
+        weight *= 0.82 + noise * 0.36;
+        strongestNeighbor = Math.max(strongestNeighbor, weight);
+        neighborColors.push(hexToRgb(terrainColor({ type })));
+        neighborWeights.push(weight);
+      }
+    }
+
+    if (!neighborWeights.length) return baseColor;
+
+    const neighborColor = averageRgb(neighborColors, neighborWeights);
+    const mixNoise = RNG.hashNoise(
+      seed,
+      Math.floor(rowFloat * 1237) + baseRow * 43,
+      Math.floor(colFloat * 1291) + baseCol * 19,
+      `blend-mix`
+    );
+
+    const t = Math.max(0, Math.min(0.5, strongestNeighbor * (0.9 + mixNoise * 0.2) * 0.5));
+    return mixRgb(baseColor, neighborColor, t);
+  }
+
   function hexToNormalizedRgba(hex, alpha) {
     const cleaned = hex.replace("#", "");
     const value = parseInt(cleaned, 16);
@@ -872,26 +1001,40 @@ window.Game = window.Game || {};
     const canvas = document.createElement("canvas");
     canvas.width = resolution.width;
     canvas.height = resolution.height;
+    render.worldBackgroundCanvas = canvas;
 
     const ctx = canvas.getContext("2d", { alpha: false });
+    const imageData = ctx.createImageData(canvas.width, canvas.height);
+    const pixels = imageData.data;
+    const blockSize = Math.max(1, Math.round(State.camera.blendPixelSize || 4));
     const cellWidth = canvas.width / Math.max(1, world.cols);
     const cellHeight = canvas.height / Math.max(1, world.rows);
+    const seed = `${world.seed}|blend|${blockSize}|${State.camera.blendStrength || 0}`;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    for (let row = 0; row < world.rows; row++) {
-      for (let col = 0; col < world.cols; col++) {
-        ctx.fillStyle = terrainColor(world.terrain[row][col]);
-        ctx.fillRect(
-          Math.floor(col * cellWidth),
-          Math.floor(row * cellHeight),
-          Math.ceil(cellWidth) + 1,
-          Math.ceil(cellHeight) + 1
-        );
+    for (let y = 0; y < canvas.height; y += blockSize) {
+      for (let x = 0; x < canvas.width; x += blockSize) {
+        const sampleX = Math.min(canvas.width - 1, x + blockSize * 0.5);
+        const sampleY = Math.min(canvas.height - 1, y + blockSize * 0.5);
+        const colFloat = sampleX / cellWidth;
+        const rowFloat = sampleY / cellHeight;
+        const col = Math.max(0, Math.min(world.cols - 1, Math.floor(colFloat)));
+        const row = Math.max(0, Math.min(world.rows - 1, Math.floor(rowFloat)));
+        const color = buildBlendColor(seed, rowFloat, colFloat);
+        const maxX = Math.min(canvas.width, x + blockSize);
+        const maxY = Math.min(canvas.height, y + blockSize);
+        for (let py = y; py < maxY; py++) {
+          for (let px = x; px < maxX; px++) {
+            const idx = (py * canvas.width + px) * 4;
+            pixels[idx] = color.r;
+            pixels[idx + 1] = color.g;
+            pixels[idx + 2] = color.b;
+            pixels[idx + 3] = 255;
+          }
+        }
       }
     }
 
-    render.worldBackgroundCanvas = canvas;
+    ctx.putImageData(imageData, 0, 0);
     render.needsBackgroundRebuild = false;
     render.needsBackgroundUpload = true;
   }
@@ -997,7 +1140,7 @@ window.Game = window.Game || {};
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     drawBackgroundQuad(gl, metrics);
-    drawGridOverlay(gl, metrics);
+    if (State.camera.showGrid) drawGridOverlay(gl, metrics);
 
     if (world.hover) drawHoverMarker(gl, world.hover.row, world.hover.col, metrics.tileWidth, metrics.tileHeight);
     if (world.selected) drawSelectionMarker(gl, world.selected.row, world.selected.col, metrics.tileWidth, metrics.tileHeight);

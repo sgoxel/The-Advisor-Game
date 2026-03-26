@@ -44,13 +44,16 @@ window.Game = window.Game || {};
       lastX: 0,
       lastY: 0,
       movedWhileDragging: false,
-      zoom: 5,
-      minZoom: 2.0,
-      maxZoom: 5,
-      zoomStep: 0.1,
+      zoom: Config.DEFAULT_START_ZOOM,
+      minZoom: Config.MIN_START_ZOOM,
+      maxZoom: Config.MAX_START_ZOOM,
+      zoomStep: Config.DEFAULT_ZOOM_STEP,
       followPlayer: true,
       pitchAngle: Config.DEFAULT_CAMERA_PITCH,
-      depthStrength: Config.DEFAULT_DEPTH_STRENGTH
+      depthStrength: Config.DEFAULT_DEPTH_STRENGTH,
+      showGrid: Config.DEFAULT_SHOW_GRID,
+      blendPixelSize: Config.DEFAULT_BLEND_PIXEL_SIZE,
+      blendStrength: Config.DEFAULT_BLEND_STRENGTH
     },
 
     input: {
@@ -83,6 +86,9 @@ window.Game = window.Game || {};
       mapHeightInput: null,
       cameraPitchInput: null,
       depthStrengthInput: null,
+      blendPixelSizeInput: null,
+      blendStrengthInput: null,
+      showGridInput: null,
 
       dialogText: null,
       languageSelect: null,
@@ -108,7 +114,11 @@ window.Game = window.Game || {};
       resolutionLocation: null,
       clearColor: [18 / 255, 25 / 255, 32 / 255, 1],
       needsWorldRedraw: true,
-      needsMinimapRedraw: true
+      needsMinimapRedraw: true,
+      needsBackgroundRebuild: true,
+      needsBackgroundUpload: true,
+      backgroundTextureReady: false,
+      worldBackgroundCanvas: null
     },
 
     log: {

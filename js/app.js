@@ -42,6 +42,9 @@ window.Game = window.Game || {};
     world.terrain = generated.grid;
     world.params = generated.params;
 
+    State.render.needsBackgroundRebuild = true;
+    State.render.needsBackgroundUpload = true;
+    State.render.backgroundTextureReady = false;
     UI.syncSettingsInputs();
     UI.updateParamUI();
     Renderer.fitCameraToWorld();
@@ -70,9 +73,23 @@ window.Game = window.Game || {};
     const rows = Utils.clamp(Number(dom.mapHeightInput.value) || Config.DEFAULT_ROWS, Config.MIN_MAP_SIZE, Config.MAX_MAP_SIZE);
     const pitchAngle = Utils.clamp(Number(dom.cameraPitchInput.value) || Config.DEFAULT_CAMERA_PITCH, Config.MIN_CAMERA_PITCH, Config.MAX_CAMERA_PITCH);
     const depthStrength = Utils.clamp(Number(dom.depthStrengthInput.value) || Config.DEFAULT_DEPTH_STRENGTH, Config.MIN_DEPTH_STRENGTH, Config.MAX_DEPTH_STRENGTH);
+    const blendPixelSize = Utils.clamp(
+      Number(dom.blendPixelSizeInput && dom.blendPixelSizeInput.value) || Config.DEFAULT_BLEND_PIXEL_SIZE,
+      Config.MIN_BLEND_PIXEL_SIZE,
+      Config.MAX_BLEND_PIXEL_SIZE
+    );
+    const blendStrength = Utils.clamp(
+      Number(dom.blendStrengthInput && dom.blendStrengthInput.value) || Config.DEFAULT_BLEND_STRENGTH,
+      Config.MIN_BLEND_STRENGTH,
+      Config.MAX_BLEND_STRENGTH
+    );
+    const showGrid = !!(dom.showGridInput && dom.showGridInput.checked);
 
     State.camera.pitchAngle = pitchAngle;
     State.camera.depthStrength = depthStrength;
+    State.camera.blendPixelSize = blendPixelSize;
+    State.camera.blendStrength = blendStrength;
+    State.camera.showGrid = showGrid;
     rebuildWorld(seed, cols, rows);
     UI.closeSettingsModal();
     UI.addLog(I18n.t("logs.settingsApplied", { seed, cols, rows }));

@@ -1,6 +1,6 @@
 /*
   FILE PURPOSE:
-  Central place for application constants and limits.
+  Central place for application constants, defaults and UI-adjustable setting limits.
 */
 
 window.Game = window.Game || {};
@@ -17,12 +17,27 @@ window.Game.Config = {
   TILE_HEIGHT: 44,
 
   DEFAULT_CAMERA_PITCH: 60,
-  DEFAULT_DEPTH_STRENGTH: 1.0,
-  DEFAULT_START_ZOOM: 5.00,
   MIN_CAMERA_PITCH: 20,
   MAX_CAMERA_PITCH: 90,
+
+  DEFAULT_DEPTH_STRENGTH: 1.0,
   MIN_DEPTH_STRENGTH: 0.6,
   MAX_DEPTH_STRENGTH: 1.8,
+
+  DEFAULT_BLEND_PIXEL_SIZE: 4,
+  MIN_BLEND_PIXEL_SIZE: 1,
+  MAX_BLEND_PIXEL_SIZE: 32,
+
+  DEFAULT_BLEND_STRENGTH: 0.2,
+  MIN_BLEND_STRENGTH: 0.0,
+  MAX_BLEND_STRENGTH: 0.5,
+
+  DEFAULT_SHOW_GRID: false,
+
+  DEFAULT_START_ZOOM: 5.00,
+  MIN_START_ZOOM: 2.0,
+  MAX_START_ZOOM: 5.0,
+  DEFAULT_ZOOM_STEP: 0.1,
 
   CAMERA_MOVE_SPEED: 18
 };

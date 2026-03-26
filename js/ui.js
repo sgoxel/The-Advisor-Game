@@ -34,6 +34,9 @@ window.Game = window.Game || {};
     dom.mapHeightInput = document.getElementById("mapHeightInput");
     dom.cameraPitchInput = document.getElementById("cameraPitchInput");
     dom.depthStrengthInput = document.getElementById("depthStrengthInput");
+    dom.blendPixelSizeInput = document.getElementById("blendPixelSizeInput");
+    dom.blendStrengthInput = document.getElementById("blendStrengthInput");
+    dom.showGridInput = document.getElementById("showGridInput");
 
     dom.dialogText = document.getElementById("dialogText");
     dom.languageSelect = document.getElementById("languageSelect");
@@ -72,6 +75,9 @@ window.Game = window.Game || {};
     dom.mapHeightInput.value = State.world.rows;
     dom.cameraPitchInput.value = State.camera.pitchAngle;
     dom.depthStrengthInput.value = State.camera.depthStrength;
+    if (dom.blendPixelSizeInput) dom.blendPixelSizeInput.value = State.camera.blendPixelSize;
+    if (dom.blendStrengthInput) dom.blendStrengthInput.value = State.camera.blendStrength;
+    if (dom.showGridInput) dom.showGridInput.checked = !!State.camera.showGrid;
   }
 
   function percent(value) { return I18n.t("paramValues.percent", { value }); }
