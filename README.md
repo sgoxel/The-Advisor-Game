@@ -1,3 +1,5 @@
+<img src="githubpage/img/Concept Map Generation.png" width="600"/>
+
 The Advisor Game
 
 HTML5 + WebGL Based Game Demo
