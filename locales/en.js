@@ -1,3 +1,4 @@
+/* ROAD_PATCH_V2: diagonal connectivity + color fix */
 window.Game = window.Game || {};
 window.Game.Locales = window.Game.Locales || {};
 window.Game.Locales.en = {

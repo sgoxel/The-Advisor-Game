@@ -1,3 +1,4 @@
+/* ROAD_PATCH_V2: diagonal connectivity + color fix */
 /*
   FILE PURPOSE:
   Generate high-level topology and infrastructure decisions from the seed.

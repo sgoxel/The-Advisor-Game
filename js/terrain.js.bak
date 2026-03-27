@@ -303,32 +303,6 @@ window.Game = window.Game || {};
     }
   }
 
-  function canPlaceRoad(tile) {
-    return tile.type !== "lake" && tile.type !== "river" && !tile.tags.has("mountain");
-  }
-
-  function stampRoadTile(grid, row, col) {
-    const tile = grid[row] && grid[row][col];
-    if (!tile || !canPlaceRoad(tile)) return false;
-    tile.type = "road";
-    tile.tags.add("road");
-    tile.elevation = 0;
-    return true;
-  }
-
-  function stampRoadTransition(grid, prevRow, prevCol, nextRow, nextCol) {
-    stampRoadTile(grid, prevRow, prevCol);
-
-    if (prevRow !== nextRow && prevCol !== nextCol) {
-      const verticalConnector = stampRoadTile(grid, nextRow, prevCol);
-      if (!verticalConnector) {
-        stampRoadTile(grid, prevRow, nextCol);
-      }
-    }
-
-    stampRoadTile(grid, nextRow, nextCol);
-  }
-
   function addRoads(grid, params, seed) {
     const world = State.world;
 
@@ -340,29 +314,29 @@ window.Game = window.Game || {};
         let row = Math.floor(rng() * world.rows * 0.7 + world.rows * 0.15);
 
         for (let col = 0; col < world.cols; col++) {
-          const currentRow = row;
-          let nextRow = currentRow;
-
-          if (col < world.cols - 1 && rng() > 0.72) {
-            nextRow = Utils.clamp(currentRow + (rng() > 0.5 ? 1 : -1), 0, world.rows - 1);
+          if (grid[row][col].type !== "lake" && grid[row][col].type !== "river" && !grid[row][col].tags.has("mountain")) {
+            grid[row][col].type = "road";
+            grid[row][col].tags.add("road");
+            grid[row][col].elevation = 0;
           }
 
-          stampRoadTransition(grid, currentRow, col, nextRow, Math.min(col + 1, world.cols - 1));
-          row = nextRow;
+          if (rng() > 0.72) {
+            row = Utils.clamp(row + (rng() > 0.5 ? 1 : -1), 0, world.rows - 1);
+          }
         }
       } else {
         let col = Math.floor(rng() * world.cols * 0.7 + world.cols * 0.15);
 
         for (let row = 0; row < world.rows; row++) {
-          const currentCol = col;
-          let nextCol = currentCol;
-
-          if (row < world.rows - 1 && rng() > 0.72) {
-            nextCol = Utils.clamp(currentCol + (rng() > 0.5 ? 1 : -1), 0, world.cols - 1);
+          if (grid[row][col].type !== "lake" && grid[row][col].type !== "river" && !grid[row][col].tags.has("mountain")) {
+            grid[row][col].type = "road";
+            grid[row][col].tags.add("road");
+            grid[row][col].elevation = 0;
           }
 
-          stampRoadTransition(grid, row, currentCol, Math.min(row + 1, world.rows - 1), nextCol);
-          col = nextCol;
+          if (rng() > 0.72) {
+            col = Utils.clamp(col + (rng() > 0.5 ? 1 : -1), 0, world.cols - 1);
+          }
         }
       }
     }

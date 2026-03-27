@@ -1,3 +1,4 @@
+/* ROAD_PATCH_V2: diagonal connectivity + color fix */
 /*
   FILE PURPOSE:
   Handle mouse and keyboard input for camera, tile picking, zoom, and movement/pathfinding.

@@ -1,3 +1,4 @@
+/* ROAD_PATCH_V2: diagonal connectivity + color fix */
 /*
   FILE PURPOSE:
   Hold shared mutable runtime state for the whole application.

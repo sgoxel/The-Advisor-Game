@@ -1,3 +1,4 @@
+/* ROAD_PATCH_V2: diagonal connectivity + color fix */
 /*
   FILE PURPOSE:
   Render the rectangular game world with WebGL using true 3D perspective projection.
@@ -595,10 +596,10 @@ window.Game = window.Game || {};
     if (tile.type === "mountain") {
       return 3;
     }
-    if (tile.type === "road" || (tile.tags && tile.tags.has("forest"))) {
+    if (tile.tags && tile.tags.has("forest")) {
       return 2;
     }
-    if (tile.type === "grass" || tile.type === "dirt") {
+    if (tile.type === "road" || tile.type === "grass" || tile.type === "dirt") {
       return 1;
     }
     return 1;
@@ -695,6 +696,9 @@ window.Game = window.Game || {};
     const baseRow = Math.max(0, Math.min(world.rows - 1, Math.floor(rowFloat)));
     const baseCol = Math.max(0, Math.min(world.cols - 1, Math.floor(colFloat)));
     const currentTile = getTile(baseRow, baseCol);
+    if (currentTile && currentTile.type === 'road') {
+      return { shadowAmount: 0, highlightAmount: 0, edgeAmount: 0 };
+    }
     const currentLevel = getRenderLevel(currentTile);
     const sun = getSunDirection();
 
@@ -878,6 +882,76 @@ window.Game = window.Game || {};
     return tile ? tile.type : null;
   }
 
+  function getRoadAppearanceCache() {
+    const render = State.render;
+    if (!render.roadAppearanceCache) {
+      render.roadAppearanceCache = new Map();
+    }
+    return render.roadAppearanceCache;
+  }
+
+  function getRoadBaseAppearance(row, col) {
+    const cache = getRoadAppearanceCache();
+    const key = `${row},${col}`;
+    if (cache.has(key)) return cache.get(key);
+
+    const tile = getTile(row, col);
+    const baseElevation = tile ? Number(tile.elevation || 0) : 0;
+    const neighborColors = [];
+    const neighborWeights = [];
+    const typeWeights = Object.create(null);
+
+    for (let nr = row - 1; nr <= row + 1; nr++) {
+      for (let nc = col - 1; nc <= col + 1; nc++) {
+        if (nr === row && nc === col) continue;
+        const neighbor = getTile(nr, nc);
+        if (!neighbor) continue;
+        if (neighbor.type === 'road') continue;
+        if (neighbor.type === 'lake' || neighbor.type === 'river') continue;
+        if (Math.abs(Number(neighbor.elevation || 0) - baseElevation) > 0.001) continue;
+
+        const isDiagonal = nr !== row && nc !== col;
+        const weight = isDiagonal ? 0.7 : 1.0;
+        neighborColors.push(hexToRgb(terrainColor(neighbor)));
+        neighborWeights.push(weight);
+        typeWeights[neighbor.type] = (typeWeights[neighbor.type] || 0) + weight;
+      }
+    }
+
+    let dominantType = 'grass';
+    let dominantWeight = -1;
+    Object.keys(typeWeights).forEach((type) => {
+      if (typeWeights[type] > dominantWeight) {
+        dominantWeight = typeWeights[type];
+        dominantType = type;
+      }
+    });
+
+    const appearance = {
+      type: dominantType,
+      color: neighborColors.length
+        ? averageRgb(neighborColors, neighborWeights)
+        : hexToRgb(terrainColor({ type: dominantType }))
+    };
+
+    cache.set(key, appearance);
+    return appearance;
+  }
+
+  function getVisualTileAppearance(row, col) {
+    const tile = getTile(row, col);
+    if (!tile) {
+      return { type: 'grass', color: hexToRgb(terrainColor({ type: 'grass' })) };
+    }
+    if (tile.type === 'road') {
+      return getRoadBaseAppearance(row, col);
+    }
+    return {
+      type: tile.type,
+      color: hexToRgb(terrainColor(tile))
+    };
+  }
+
   function smoothstep01(t) {
     const x = Math.max(0, Math.min(1, t));
     return x * x * (3 - 2 * x);
@@ -917,9 +991,9 @@ window.Game = window.Game || {};
     const world = State.world;
     const baseRow = Math.max(0, Math.min(world.rows - 1, Math.floor(rowFloat)));
     const baseCol = Math.max(0, Math.min(world.cols - 1, Math.floor(colFloat)));
-    const baseTile = world.terrain[baseRow][baseCol];
-    const baseType = baseTile.type;
-    const baseColor = hexToRgb(terrainColor(baseTile));
+    const baseAppearance = getVisualTileAppearance(baseRow, baseCol);
+    const baseType = baseAppearance.type;
+    const baseColor = baseAppearance.color;
     const blendStrength = Math.max(0, Math.min(0.5, State.camera.blendStrength || 0));
     if (blendStrength <= 0) return baseColor;
 
@@ -932,7 +1006,8 @@ window.Game = window.Game || {};
         if (row < 0 || col < 0 || row >= world.rows || col >= world.cols) continue;
         if (row === baseRow && col === baseCol) continue;
 
-        const type = getTileType(row, col);
+        const neighborAppearance = getVisualTileAppearance(row, col);
+        const type = neighborAppearance.type;
         if (!type || type === baseType) continue;
 
         const distance = distanceToTileRect(rowFloat, colFloat, row, col);
@@ -950,7 +1025,7 @@ window.Game = window.Game || {};
         );
         weight *= 0.82 + noise * 0.36;
         strongestNeighbor = Math.max(strongestNeighbor, weight);
-        neighborColors.push(hexToRgb(terrainColor({ type })));
+        neighborColors.push(neighborAppearance.color);
         neighborWeights.push(weight);
       }
     }
@@ -1188,6 +1263,131 @@ window.Game = window.Game || {};
   }
 
 
+  function hasRoadAt(row, col) {
+    return getTileType(row, col) === 'road';
+  }
+
+  function shouldRenderRoadConnection(row, col, dr, dc) {
+    if (!hasRoadAt(row + dr, col + dc)) return false;
+
+    const isDiagonal = dr !== 0 && dc !== 0;
+    if (!isDiagonal) return true;
+
+    const verticalBridgeExists = hasRoadAt(row + dr, col);
+    const horizontalBridgeExists = hasRoadAt(row, col + dc);
+
+    if (verticalBridgeExists || horizontalBridgeExists) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function getRoadConnections(row, col) {
+    const directions = [
+      { dr: -1, dc: 0 },
+      { dr: 1, dc: 0 },
+      { dr: 0, dc: -1 },
+      { dr: 0, dc: 1 },
+      { dr: -1, dc: -1 },
+      { dr: -1, dc: 1 },
+      { dr: 1, dc: -1 },
+      { dr: 1, dc: 1 }
+    ];
+    return directions.filter((dir) => shouldRenderRoadConnection(row, col, dir.dr, dir.dc));
+  }
+
+  function drawRoadDisc2D(ctx, centerX, centerY, radius, fillStyle) {
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.fillStyle = fillStyle;
+    ctx.fill();
+  }
+
+  function drawRoadCapsule2D(ctx, x1, y1, x2, y2, radius, fillStyle) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const length = Math.hypot(dx, dy);
+    if (length < EPSILON) {
+      drawRoadDisc2D(ctx, x1, y1, radius, fillStyle);
+      return;
+    }
+
+    const ux = dx / length;
+    const uy = dy / length;
+    const px = -uy;
+    const py = ux;
+
+    ctx.beginPath();
+    ctx.moveTo(x1 + px * radius, y1 + py * radius);
+    ctx.lineTo(x1 - px * radius, y1 - py * radius);
+    ctx.lineTo(x2 - px * radius, y2 - py * radius);
+    ctx.lineTo(x2 + px * radius, y2 + py * radius);
+    ctx.closePath();
+    ctx.fillStyle = fillStyle;
+    ctx.fill();
+
+    drawRoadDisc2D(ctx, x1, y1, radius, fillStyle);
+    drawRoadDisc2D(ctx, x2, y2, radius, fillStyle);
+  }
+
+  function drawRoadOverlay(ctx, cellWidth, cellHeight) {
+    const world = State.world;
+    const roadWidth = Math.max(3, Math.min(cellWidth, cellHeight) * 0.34);
+    const roadRadius = roadWidth * 0.5;
+    const edgeBandWidth = Math.max(0.75, roadWidth * 0.08);
+    const edgeRadius = roadRadius + edgeBandWidth;
+    const roadColor = terrainColor({ type: 'road' });
+    const roadRgb = hexToRgb(roadColor);
+    const edgeColor = `rgba(${Math.max(0, roadRgb.r - 36)}, ${Math.max(0, roadRgb.g - 36)}, ${Math.max(0, roadRgb.b - 36)}, 0.28)`;
+
+    const centers = [];
+    const segments = [];
+
+    for (let row = 0; row < world.rows; row++) {
+      for (let col = 0; col < world.cols; col++) {
+        if (getTileType(row, col) !== 'road') continue;
+
+        const centerX = (col + 0.5) * cellWidth;
+        const centerY = (row + 0.5) * cellHeight;
+        centers.push({ x: centerX, y: centerY });
+
+        const connections = getRoadConnections(row, col);
+        for (let i = 0; i < connections.length; i++) {
+          const dir = connections[i];
+          const nr = row + dir.dr;
+          const nc = col + dir.dc;
+          if (nr < row || (nr === row && nc <= col)) continue;
+          const endX = (nc + 0.5) * cellWidth;
+          const endY = (nr + 0.5) * cellHeight;
+          segments.push({ x1: centerX, y1: centerY, x2: endX, y2: endY });
+        }
+      }
+    }
+
+    // Önce yol geometrisinin sadece dış kenarında ince bir kenar/gölge bandı çiz.
+    // Böylece tile dışına taşan geniş halo kaldırılmış olur.
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      drawRoadCapsule2D(ctx, seg.x1, seg.y1, seg.x2, seg.y2, edgeRadius, edgeColor);
+    }
+    for (let i = 0; i < centers.length; i++) {
+      const c = centers[i];
+      drawRoadDisc2D(ctx, c.x, c.y, edgeRadius, edgeColor);
+    }
+
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      drawRoadCapsule2D(ctx, seg.x1, seg.y1, seg.x2, seg.y2, roadRadius, roadColor);
+    }
+    for (let i = 0; i < centers.length; i++) {
+      const c = centers[i];
+      drawRoadDisc2D(ctx, c.x, c.y, roadRadius, roadColor);
+    }
+  }
+
+
   function getProjectedTileScreenSize(worldPos, tileWidth, tileHeight) {
     const center = projectWorldToScreen(worldPos.x, WORLD_SURFACE_Y, worldPos.z);
     const east = projectWorldToScreen(worldPos.x + tileWidth, WORLD_SURFACE_Y, worldPos.z);
@@ -1292,6 +1492,8 @@ window.Game = window.Game || {};
     const render = State.render;
     if (!world || !world.terrain || !world.terrain.length) return;
 
+    render.roadAppearanceCache = new Map();
+
     const resolution = getBackgroundResolution(world.cols, world.rows);
     const canvas = document.createElement("canvas");
     canvas.width = resolution.width;
@@ -1332,6 +1534,7 @@ window.Game = window.Game || {};
 
     applyPostTileNoise(pixels, canvas.width, canvas.height, cellWidth, cellHeight, seed);
     ctx.putImageData(imageData, 0, 0);
+    drawRoadOverlay(ctx, cellWidth, cellHeight);
     render.needsBackgroundRebuild = false;
     render.needsBackgroundUpload = true;
   }

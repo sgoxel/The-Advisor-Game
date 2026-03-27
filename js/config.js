@@ -1,3 +1,4 @@
+/* ROAD_PATCH_V2: diagonal connectivity + color fix */
 /*
   FILE PURPOSE:
   Central place for application constants, defaults and UI-adjustable setting limits.
