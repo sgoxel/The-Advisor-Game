@@ -696,9 +696,6 @@ window.Game = window.Game || {};
     const baseRow = Math.max(0, Math.min(world.rows - 1, Math.floor(rowFloat)));
     const baseCol = Math.max(0, Math.min(world.cols - 1, Math.floor(colFloat)));
     const currentTile = getTile(baseRow, baseCol);
-    if (currentTile && currentTile.type === 'road') {
-      return { shadowAmount: 0, highlightAmount: 0, edgeAmount: 0 };
-    }
     const currentLevel = getRenderLevel(currentTile);
     const sun = getSunDirection();
 
@@ -1332,15 +1329,35 @@ window.Game = window.Game || {};
     drawRoadDisc2D(ctx, x2, y2, radius, fillStyle);
   }
 
+  function rgbToCss(color, alpha) {
+    if (alpha === undefined || alpha === null) {
+      return `rgb(${clampByte(color.r)}, ${clampByte(color.g)}, ${clampByte(color.b)})`;
+    }
+    return `rgba(${clampByte(color.r)}, ${clampByte(color.g)}, ${clampByte(color.b)}, ${Math.max(0, Math.min(1, alpha))})`;
+  }
+
+  function getRoadShadedAppearance(row, col, seed) {
+    const baseRoadRgb = hexToRgb(terrainColor({ type: 'road' }));
+    const lightInfo = computeReliefLight(seed, row + 0.5, col + 0.5);
+    const fillRgb = applyReliefLighting(baseRoadRgb, lightInfo);
+    const edgeRgb = {
+      r: Math.max(0, fillRgb.r - 36),
+      g: Math.max(0, fillRgb.g - 36),
+      b: Math.max(0, fillRgb.b - 36)
+    };
+    return {
+      fillCss: rgbToCss(fillRgb),
+      edgeCss: rgbToCss(edgeRgb, 0.28)
+    };
+  }
+
   function drawRoadOverlay(ctx, cellWidth, cellHeight) {
     const world = State.world;
+    const seed = world.seed || 'road';
     const roadWidth = Math.max(3, Math.min(cellWidth, cellHeight) * 0.34);
     const roadRadius = roadWidth * 0.5;
     const edgeBandWidth = Math.max(0.75, roadWidth * 0.08);
     const edgeRadius = roadRadius + edgeBandWidth;
-    const roadColor = terrainColor({ type: 'road' });
-    const roadRgb = hexToRgb(roadColor);
-    const edgeColor = `rgba(${Math.max(0, roadRgb.r - 36)}, ${Math.max(0, roadRgb.g - 36)}, ${Math.max(0, roadRgb.b - 36)}, 0.28)`;
 
     const centers = [];
     const segments = [];
@@ -1351,7 +1368,8 @@ window.Game = window.Game || {};
 
         const centerX = (col + 0.5) * cellWidth;
         const centerY = (row + 0.5) * cellHeight;
-        centers.push({ x: centerX, y: centerY });
+        const appearance = getRoadShadedAppearance(row, col, seed);
+        centers.push({ x: centerX, y: centerY, appearance });
 
         const connections = getRoadConnections(row, col);
         for (let i = 0; i < connections.length; i++) {
@@ -1361,29 +1379,41 @@ window.Game = window.Game || {};
           if (nr < row || (nr === row && nc <= col)) continue;
           const endX = (nc + 0.5) * cellWidth;
           const endY = (nr + 0.5) * cellHeight;
-          segments.push({ x1: centerX, y1: centerY, x2: endX, y2: endY });
+          const neighborAppearance = getRoadShadedAppearance(nr, nc, seed);
+          segments.push({
+            x1: centerX,
+            y1: centerY,
+            x2: endX,
+            y2: endY,
+            startAppearance: appearance,
+            endAppearance: neighborAppearance
+          });
         }
       }
     }
 
-    // Önce yol geometrisinin sadece dış kenarında ince bir kenar/gölge bandı çiz.
-    // Böylece tile dışına taşan geniş halo kaldırılmış olur.
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i];
-      drawRoadCapsule2D(ctx, seg.x1, seg.y1, seg.x2, seg.y2, edgeRadius, edgeColor);
+      const edgeGradient = ctx.createLinearGradient(seg.x1, seg.y1, seg.x2, seg.y2);
+      edgeGradient.addColorStop(0, seg.startAppearance.edgeCss);
+      edgeGradient.addColorStop(1, seg.endAppearance.edgeCss);
+      drawRoadCapsule2D(ctx, seg.x1, seg.y1, seg.x2, seg.y2, edgeRadius, edgeGradient);
     }
     for (let i = 0; i < centers.length; i++) {
       const c = centers[i];
-      drawRoadDisc2D(ctx, c.x, c.y, edgeRadius, edgeColor);
+      drawRoadDisc2D(ctx, c.x, c.y, edgeRadius, c.appearance.edgeCss);
     }
 
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i];
-      drawRoadCapsule2D(ctx, seg.x1, seg.y1, seg.x2, seg.y2, roadRadius, roadColor);
+      const fillGradient = ctx.createLinearGradient(seg.x1, seg.y1, seg.x2, seg.y2);
+      fillGradient.addColorStop(0, seg.startAppearance.fillCss);
+      fillGradient.addColorStop(1, seg.endAppearance.fillCss);
+      drawRoadCapsule2D(ctx, seg.x1, seg.y1, seg.x2, seg.y2, roadRadius, fillGradient);
     }
     for (let i = 0; i < centers.length; i++) {
       const c = centers[i];
-      drawRoadDisc2D(ctx, c.x, c.y, roadRadius, roadColor);
+      drawRoadDisc2D(ctx, c.x, c.y, roadRadius, c.appearance.fillCss);
     }
   }
 
