@@ -535,6 +535,8 @@ window.Game = window.Game || {};
       case "lake": return "#4b79b4";
       case "river": return "#4b79b4";
       case "road": return "#b99b68";
+      case "forest": return "#3f6f45";
+      case "settlement": return "#c9b48d";
       default: return "#5a9b5f";
     }
   }
@@ -596,10 +598,10 @@ window.Game = window.Game || {};
     if (tile.type === "mountain") {
       return 3;
     }
-    if (tile.tags && tile.tags.has("forest")) {
+    if (tile.type === "forest" || (tile.tags && tile.tags.has("forest"))) {
       return 2;
     }
-    if (tile.type === "road" || tile.type === "grass" || tile.type === "dirt") {
+    if (tile.type === "road" || tile.type === "grass" || tile.type === "dirt" || tile.type === "settlement") {
       return 1;
     }
     return 1;
@@ -1285,11 +1287,7 @@ window.Game = window.Game || {};
       { dr: -1, dc: 0 },
       { dr: 1, dc: 0 },
       { dr: 0, dc: -1 },
-      { dr: 0, dc: 1 },
-      { dr: -1, dc: -1 },
-      { dr: -1, dc: 1 },
-      { dr: 1, dc: -1 },
-      { dr: 1, dc: 1 }
+      { dr: 0, dc: 1 }
     ];
     return directions.filter((dir) => shouldRenderRoadConnection(row, col, dir.dr, dir.dc));
   }

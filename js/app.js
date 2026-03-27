@@ -36,6 +36,14 @@ window.Game = window.Game || {};
     };
 
     const generated = Terrain.generateWorld(seed, cols, rows);
+    if (generated && generated.playerStart) {
+      world.player.row = generated.playerStart.row;
+      world.player.col = generated.playerStart.col;
+      world.player.startRow = generated.playerStart.row;
+      world.player.startCol = generated.playerStart.col;
+      world.player.targetRow = generated.playerStart.row;
+      world.player.targetCol = generated.playerStart.col;
+    }
     State.camera.zoom = Config.DEFAULT_START_ZOOM;
     State.camera.x = world.player.col;
     State.camera.y = world.player.row;

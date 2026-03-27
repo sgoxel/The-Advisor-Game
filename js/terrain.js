@@ -1,22 +1,4 @@
-/* ROAD_PATCH_V2: diagonal connectivity + color fix */
-/*
-  FILE PURPOSE:
-  Convert topology decisions into actual map tiles.
-
-  DEPENDENCIES:
-  - state.js
-  - utils.js
-  - rng.js
-  - topology.js
-
-  PUBLIC API:
-  - Game.Terrain.generateWorld
-
-  IMPORTANT RULES:
-  - This file should not draw anything.
-  - This file should not read/write DOM.
-*/
-
+/* ROAD_PATCH_V3: constrained world generation + connected settlements */
 window.Game = window.Game || {};
 
 (function () {
@@ -38,362 +20,391 @@ window.Game = window.Game || {};
     return row >= 0 && row < world.rows && col >= 0 && col < world.cols;
   }
 
-  function markCircle(grid, centerRow, centerCol, radius, callback) {
-    for (let row = Math.floor(centerRow - radius); row <= Math.ceil(centerRow + radius); row++) {
-      for (let col = Math.floor(centerCol - radius); col <= Math.ceil(centerCol + radius); col++) {
-        if (!inBounds(row, col)) continue;
+  function makeMask(rows, cols, initialValue) {
+    return Array.from({ length: rows }, () => Array.from({ length: cols }, () => !!initialValue));
+  }
 
-        const dist = Math.hypot(row - centerRow, col - centerCol);
-        if (dist <= radius) {
-          callback(grid[row][col], row, col, dist);
+  function tileAt(grid, row, col) {
+    return inBounds(row, col) ? grid[row][col] : null;
+  }
+
+  function isReserved(reserved, row, col) {
+    return !!(reserved[row] && reserved[row][col]);
+  }
+
+  function reserveTile(reserved, row, col) {
+    if (reserved[row]) reserved[row][col] = true;
+  }
+
+  function stampRoadTile(grid, reserved, row, col) {
+    const tile = tileAt(grid, row, col);
+    if (!tile) return false;
+    tile.type = "road";
+    tile.elevation = 0;
+    tile.tags.delete("blocked");
+    tile.tags.delete("forest");
+    tile.tags.delete("mountain");
+    tile.tags.delete("mountainCore");
+    tile.tags.delete("stream");
+    tile.tags.delete("lake");
+    tile.tags.add("road");
+    reserveTile(reserved, row, col);
+    return true;
+  }
+
+  function stampSettlementTile(grid, reserved, row, col, settlementId) {
+    const tile = tileAt(grid, row, col);
+    if (!tile) return false;
+    tile.type = "settlement";
+    tile.elevation = 0;
+    tile.tags.delete("blocked");
+    tile.tags.delete("forest");
+    tile.tags.delete("mountain");
+    tile.tags.delete("mountainCore");
+    tile.tags.delete("stream");
+    tile.tags.delete("lake");
+    tile.tags.add("settlement");
+    tile.tags.add(`settlement-${settlementId}`);
+    reserveTile(reserved, row, col);
+    return true;
+  }
+
+  function paintForestTile(grid, row, col) {
+    const tile = tileAt(grid, row, col);
+    if (!tile) return false;
+    tile.type = "forest";
+    tile.elevation = 0;
+    tile.tags.add("forest");
+    tile.tags.add("blocked");
+    return true;
+  }
+
+  function paintMountainTile(grid, row, col, elevation) {
+    const tile = tileAt(grid, row, col);
+    if (!tile) return false;
+    tile.type = "mountain";
+    tile.elevation = Math.max(tile.elevation || 0, elevation || 2.8);
+    tile.tags.add("mountain");
+    tile.tags.add("mountainCore");
+    tile.tags.add("blocked");
+    return true;
+  }
+
+  function paintLakeTile(grid, row, col) {
+    const tile = tileAt(grid, row, col);
+    if (!tile) return false;
+    tile.type = "lake";
+    tile.elevation = 0;
+    tile.tags.add("lake");
+    tile.tags.add("blocked");
+    tile.tags.delete("mountain");
+    tile.tags.delete("mountainCore");
+    tile.tags.delete("forest");
+    return true;
+  }
+
+  function paintRiverTile(grid, row, col) {
+    const tile = tileAt(grid, row, col);
+    if (!tile) return false;
+    tile.type = "river";
+    tile.elevation = 0;
+    tile.tags.add("stream");
+    tile.tags.add("blocked");
+    tile.tags.delete("mountain");
+    tile.tags.delete("mountainCore");
+    tile.tags.delete("forest");
+    return true;
+  }
+
+  function tileIsBlocking(tile) {
+    if (!tile) return true;
+    if (tile.type === "mountain" || tile.type === "lake" || tile.type === "river" || tile.type === "forest") return true;
+    return !!(tile.tags && tile.tags.has("blocked"));
+  }
+
+  function markRectangle(grid, reserved, top, left, height, width, settlementId) {
+    for (let row = top; row < top + height; row++) {
+      for (let col = left; col < left + width; col++) {
+        stampSettlementTile(grid, reserved, row, col, settlementId);
+      }
+    }
+  }
+
+  function areaCenter(area) {
+    return {
+      row: area.top + (area.height - 1) / 2,
+      col: area.left + (area.width - 1) / 2
+    };
+  }
+
+  function rectsAreTooClose(a, b, padding) {
+    return !(
+      a.left + a.width + padding <= b.left ||
+      b.left + b.width + padding <= a.left ||
+      a.top + a.height + padding <= b.top ||
+      b.top + b.height + padding <= a.top
+    );
+  }
+
+  function chooseSettlementCount(seed) {
+    return RNG.pickWeighted(seed, "settlementAreas", [2, 3, 4, 5, 6, 7, 8, 9, 10], [0.10, 0.17, 0.18, 0.16, 0.13, 0.10, 0.07, 0.05, 0.04]);
+  }
+
+  function createSettlements(grid, reserved, seed) {
+    const world = State.world;
+    const rng = RNG.createSeededRandom(`${seed}|settlements`);
+    const targetCount = chooseSettlementCount(seed);
+    const settlements = [];
+    const margin = 3;
+    const spacing = Math.max(4, Math.round(Math.min(world.rows, world.cols) * 0.08));
+
+    let attempts = 0;
+    while (settlements.length < targetCount && attempts < 500) {
+      attempts += 1;
+      const width = 2 + Math.floor(rng() * 3);
+      const height = 2 + Math.floor(rng() * 3);
+      const top = Math.floor(rng() * Math.max(1, world.rows - height - margin * 2)) + margin;
+      const left = Math.floor(rng() * Math.max(1, world.cols - width - margin * 2)) + margin;
+      const candidate = { id: settlements.length + 1, top, left, width, height };
+
+      if (settlements.some((existing) => rectsAreTooClose(existing, candidate, spacing))) continue;
+
+      markRectangle(grid, reserved, top, left, height, width, candidate.id);
+      settlements.push(candidate);
+    }
+
+    if (settlements.length < 2) {
+      const fallbackA = { id: 1, top: 3, left: 3, width: 3, height: 3 };
+      const fallbackB = { id: 2, top: Math.max(3, world.rows - 6), left: Math.max(3, world.cols - 6), width: 3, height: 3 };
+      for (const area of [fallbackA, fallbackB]) {
+        if (!settlements.some((s) => s.id === area.id)) {
+          markRectangle(grid, reserved, area.top, area.left, area.height, area.width, area.id);
+          settlements.push(area);
         }
       }
     }
-  }
 
-  function distanceToSegment(pointRow, pointCol, startRow, startCol, endRow, endCol) {
-    const vx = endRow - startRow;
-    const vy = endCol - startCol;
-    const wx = pointRow - startRow;
-    const wy = pointCol - startCol;
-    const segmentLengthSq = vx * vx + vy * vy;
-
-    if (segmentLengthSq === 0) {
-      return Math.hypot(pointRow - startRow, pointCol - startCol);
-    }
-
-    const t = Utils.clamp((wx * vx + wy * vy) / segmentLengthSq, 0, 1);
-    const projectionRow = startRow + vx * t;
-    const projectionCol = startCol + vy * t;
-    return Math.hypot(pointRow - projectionRow, pointCol - projectionCol);
-  }
-
-  function applyMountainStamp(grid, centerRow, centerCol, outerRadius, coreRadius, ridgeHeight, allowPassableEdge) {
-    markCircle(grid, centerRow, centerCol, outerRadius, (tile, row, col, dist) => {
-      const normalized = 1 - dist / outerRadius;
-      if (normalized <= 0) return;
-
-      tile.tags.add("mountain");
-      tile.elevation = Math.max(tile.elevation, normalized * ridgeHeight);
-      tile.type = "mountain";
-
-      if (dist <= coreRadius) {
-        tile.tags.add("blocked");
-        tile.tags.add("mountainCore");
-        tile.elevation = Math.max(tile.elevation, ridgeHeight * 1.05);
-        return;
-      }
-
-      if (!allowPassableEdge) {
-        tile.tags.add("blocked");
-      }
+    settlements.forEach((area) => {
+      const center = areaCenter(area);
+      area.centerRow = center.row;
+      area.centerCol = center.col;
     });
+
+    return settlements.slice(0, Math.max(2, Math.min(10, settlements.length)));
   }
 
-  function addMountainLine(grid, seed, index, centerRow, centerCol, baseRadius) {
-    const world = State.world;
-    const rng = RNG.createSeededRandom(`${seed}|mountainLine|${index}`);
-    const horizontal = rng() > 0.45;
-    const segments = 2 + Math.floor(rng() * 2);
-    const step = Math.max(4, Math.round(baseRadius * (1.6 + rng() * 0.8)));
-    const direction = rng() > 0.5 ? 1 : -1;
-    const thickness = Math.max(2.4, baseRadius * (0.82 + rng() * 0.18));
-    const coreRadius = Math.max(1.6, thickness * 0.52);
-    const ridgeHeight = 2.4 + rng() * 1.1;
+  function getSettlementGateCandidates(area) {
+    const candidates = [];
+    const top = area.top;
+    const bottom = area.top + area.height - 1;
+    const left = area.left;
+    const right = area.left + area.width - 1;
 
-    const anchors = [{ row: centerRow, col: centerCol }];
-    for (let s = 1; s <= segments; s++) {
-      const prev = anchors[anchors.length - 1];
-      const nextRow = horizontal
-        ? prev.row + Math.round((rng() - 0.5) * baseRadius * 0.9)
-        : prev.row + direction * step + Math.round((rng() - 0.5) * baseRadius * 0.55);
-      const nextCol = horizontal
-        ? prev.col + direction * step + Math.round((rng() - 0.5) * baseRadius * 0.55)
-        : prev.col + Math.round((rng() - 0.5) * baseRadius * 0.9);
-
-      anchors.push({
-        row: Utils.clamp(nextRow, 3, world.rows - 4),
-        col: Utils.clamp(nextCol, 3, world.cols - 4)
-      });
+    for (let col = left; col <= right; col++) {
+      candidates.push({ row: top - 1, col, adjacentRow: top, adjacentCol: col });
+      candidates.push({ row: bottom + 1, col, adjacentRow: bottom, adjacentCol: col });
+    }
+    for (let row = top; row <= bottom; row++) {
+      candidates.push({ row, col: left - 1, adjacentRow: row, adjacentCol: left });
+      candidates.push({ row, col: right + 1, adjacentRow: row, adjacentCol: right });
     }
 
-    for (let i = 0; i < anchors.length - 1; i++) {
-      const start = anchors[i];
-      const end = anchors[i + 1];
-      const minRow = Math.floor(Math.min(start.row, end.row) - thickness - 1);
-      const maxRow = Math.ceil(Math.max(start.row, end.row) + thickness + 1);
-      const minCol = Math.floor(Math.min(start.col, end.col) - thickness - 1);
-      const maxCol = Math.ceil(Math.max(start.col, end.col) + thickness + 1);
+    return candidates.filter((c) => inBounds(c.row, c.col));
+  }
 
-      for (let row = minRow; row <= maxRow; row++) {
-        for (let col = minCol; col <= maxCol; col++) {
-          if (!inBounds(row, col)) continue;
-          const dist = distanceToSegment(row, col, start.row, start.col, end.row, end.col);
-          if (dist > thickness) continue;
+  function chooseGate(area, targetRow, targetCol, reserved) {
+    const candidates = getSettlementGateCandidates(area).filter((candidate) => !isReserved(reserved, candidate.row, candidate.col));
+    let best = null;
+    let bestScore = Infinity;
+    for (const candidate of candidates) {
+      const dist = Math.hypot(candidate.row - targetRow, candidate.col - targetCol);
+      if (dist < bestScore) {
+        bestScore = dist;
+        best = candidate;
+      }
+    }
+    return best || candidates[0] || null;
+  }
 
-          const normalized = 1 - dist / thickness;
-          const tile = grid[row][col];
-          tile.tags.add("mountain");
-          tile.type = "mountain";
-          tile.elevation = Math.max(tile.elevation, normalized * ridgeHeight);
+  function stampLineRoad(grid, reserved, startRow, startCol, endRow, endCol) {
+    let row = startRow;
+    let col = startCol;
+    stampRoadTile(grid, reserved, row, col);
 
-          if (dist <= coreRadius) {
-            tile.tags.add("blocked");
-            tile.tags.add("mountainCore");
-            tile.elevation = Math.max(tile.elevation, ridgeHeight * 1.08);
-          }
+    while (row !== endRow || col !== endCol) {
+      if (row !== endRow) {
+        row += row < endRow ? 1 : -1;
+        stampRoadTile(grid, reserved, row, col);
+      }
+      if (col !== endCol) {
+        col += col < endCol ? 1 : -1;
+        stampRoadTile(grid, reserved, row, col);
+      }
+    }
+  }
+
+  function connectSettlements(grid, reserved, settlements, seed) {
+    const remaining = settlements.slice(1);
+    const ordered = [settlements[0]];
+
+    while (remaining.length) {
+      const current = ordered[ordered.length - 1];
+      let bestIndex = 0;
+      let bestDistance = Infinity;
+      for (let i = 0; i < remaining.length; i++) {
+        const candidate = remaining[i];
+        const distance = Math.hypot(current.centerRow - candidate.centerRow, current.centerCol - candidate.centerCol);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestIndex = i;
         }
       }
+      ordered.push(remaining.splice(bestIndex, 1)[0]);
     }
+
+    const roadEntrances = [];
+    for (let i = 0; i < ordered.length - 1; i++) {
+      const current = ordered[i];
+      const next = ordered[i + 1];
+      const gateA = chooseGate(current, next.centerRow, next.centerCol, reserved);
+      const gateB = chooseGate(next, current.centerRow, current.centerCol, reserved);
+      if (!gateA || !gateB) continue;
+      stampLineRoad(grid, reserved, gateA.row, gateA.col, gateB.row, gateB.col);
+      roadEntrances.push({ settlementId: current.id, row: gateA.row, col: gateA.col, adjacentRow: gateA.adjacentRow, adjacentCol: gateA.adjacentCol });
+      roadEntrances.push({ settlementId: next.id, row: gateB.row, col: gateB.col, adjacentRow: gateB.adjacentRow, adjacentCol: gateB.adjacentCol });
+    }
+
+    const uniqueEntrances = new Map();
+    for (const entry of roadEntrances) {
+      const key = `${entry.settlementId}`;
+      if (!uniqueEntrances.has(key)) uniqueEntrances.set(key, entry);
+    }
+    return ordered.map((settlement) => uniqueEntrances.get(`${settlement.id}`)).filter(Boolean);
   }
 
-  function addMountainCorner(grid, seed, index, centerRow, centerCol, baseRadius) {
+  function scoreFreeCells(seed, reserved) {
     const world = State.world;
-    const rng = RNG.createSeededRandom(`${seed}|mountainCorner|${index}`);
-    const armA = Math.max(5, Math.round(baseRadius * (2.0 + rng() * 0.7)));
-    const armB = Math.max(5, Math.round(baseRadius * (1.8 + rng() * 0.7)));
-    const dirRow = rng() > 0.5 ? 1 : -1;
-    const dirCol = rng() > 0.5 ? 1 : -1;
-    const thickness = Math.max(2.6, baseRadius * (0.78 + rng() * 0.22));
-    const coreRadius = Math.max(1.7, thickness * 0.55);
-    const ridgeHeight = 2.5 + rng() * 1.2;
-
-    const elbow = {
-      row: Utils.clamp(centerRow, 3, world.rows - 4),
-      col: Utils.clamp(centerCol, 3, world.cols - 4)
-    };
-    const arm1 = {
-      row: Utils.clamp(elbow.row + dirRow * armA, 3, world.rows - 4),
-      col: elbow.col + Math.round((rng() - 0.5) * baseRadius * 0.7)
-    };
-    const arm2 = {
-      row: elbow.row + Math.round((rng() - 0.5) * baseRadius * 0.7),
-      col: Utils.clamp(elbow.col + dirCol * armB, 3, world.cols - 4)
-    };
-
-    const anchors = [arm1, elbow, arm2];
-    for (let i = 0; i < anchors.length - 1; i++) {
-      const start = anchors[i];
-      const end = anchors[i + 1];
-      const minRow = Math.floor(Math.min(start.row, end.row) - thickness - 1);
-      const maxRow = Math.ceil(Math.max(start.row, end.row) + thickness + 1);
-      const minCol = Math.floor(Math.min(start.col, end.col) - thickness - 1);
-      const maxCol = Math.ceil(Math.max(start.col, end.col) + thickness + 1);
-
-      for (let row = minRow; row <= maxRow; row++) {
-        for (let col = minCol; col <= maxCol; col++) {
-          if (!inBounds(row, col)) continue;
-          const dist = distanceToSegment(row, col, start.row, start.col, end.row, end.col);
-          if (dist > thickness) continue;
-
-          const normalized = 1 - dist / thickness;
-          const tile = grid[row][col];
-          tile.tags.add("mountain");
-          tile.type = "mountain";
-          tile.elevation = Math.max(tile.elevation, normalized * ridgeHeight);
-
-          if (dist <= coreRadius) {
-            tile.tags.add("blocked");
-            tile.tags.add("mountainCore");
-            tile.elevation = Math.max(tile.elevation, ridgeHeight * 1.08);
-          }
-        }
-      }
-    }
-
-    applyMountainStamp(grid, elbow.row, elbow.col, thickness * 1.15, coreRadius * 1.15, ridgeHeight + 0.2, false);
-  }
-
-  function addMountainMass(grid, seed, index, centerRow, centerCol, baseRadius) {
-    const rng = RNG.createSeededRandom(`${seed}|mountainMass|${index}`);
-    const blobCount = 4 + Math.floor(rng() * 3);
-    const ringRadius = Math.max(2.5, baseRadius * (0.9 + rng() * 0.35));
-    const blobRadius = Math.max(2.6, baseRadius * (0.9 + rng() * 0.22));
-    const coreRadius = Math.max(1.9, blobRadius * 0.62);
-    const ridgeHeight = 2.7 + rng() * 1.1;
-
-    applyMountainStamp(grid, centerRow, centerCol, blobRadius * 0.95, coreRadius * 0.85, ridgeHeight + 0.2, false);
-
-    for (let i = 0; i < blobCount; i++) {
-      const angle = (Math.PI * 2 * i) / blobCount + rng() * 0.4;
-      const localRadius = ringRadius * (0.7 + rng() * 0.35);
-      const blobRow = centerRow + Math.sin(angle) * localRadius;
-      const blobCol = centerCol + Math.cos(angle) * localRadius;
-      applyMountainStamp(grid, blobRow, blobCol, blobRadius, coreRadius, ridgeHeight, true);
-    }
-  }
-
-  function addHills(grid, params, seed) {
-    const world = State.world;
-
-    for (let i = 0; i < params.hillCount; i++) {
-      const rng = RNG.createSeededRandom(`${seed}|hill|${i}`);
-      const centerRow = Math.floor(rng() * world.rows * 0.62 + world.rows * 0.19);
-      const centerCol = Math.floor(rng() * world.cols * 0.62 + world.cols * 0.19);
-      const baseRadius = 2.6 + rng() * Math.max(2.5, Math.min(world.rows, world.cols) * 0.07);
-      const shape = RNG.pickWeighted(`${seed}|hillShape|${i}`, "shape", ["I", "L", "O"], [0.34, 0.30, 0.36]);
-
-      if (shape === "I") {
-        addMountainLine(grid, seed, i, centerRow, centerCol, baseRadius);
-      } else if (shape === "L") {
-        addMountainCorner(grid, seed, i, centerRow, centerCol, baseRadius);
-      } else {
-        addMountainMass(grid, seed, i, centerRow, centerCol, baseRadius);
-      }
-    }
-  }
-
-  function addLake(grid, params, seed) {
-    const world = State.world;
-    if (!params.hasLake) return;
-
-    const rng = RNG.createSeededRandom(`${seed}|lake`);
-    const centerRow = Math.floor(rng() * world.rows * 0.6 + world.rows * 0.2);
-    const centerCol = Math.floor(rng() * world.cols * 0.6 + world.cols * 0.2);
-    const radiusRow = 2 + rng() * Math.max(2, world.rows * 0.12);
-    const radiusCol = 2 + rng() * Math.max(2, world.cols * 0.12);
-
+    const cells = [];
     for (let row = 0; row < world.rows; row++) {
       for (let col = 0; col < world.cols; col++) {
-        const dx = (col - centerCol) / radiusCol;
-        const dy = (row - centerRow) / radiusRow;
-        const value = dx * dx + dy * dy;
-
-        if (value <= 1) {
-          grid[row][col].type = "lake";
-          grid[row][col].tags.add("lake");
-          grid[row][col].elevation = 0;
-          grid[row][col].tags.delete("mountain");
-          grid[row][col].tags.delete("mountainCore");
-          grid[row][col].tags.delete("blocked");
-        }
+        if (isReserved(reserved, row, col)) continue;
+        cells.push({
+          row,
+          col,
+          value: RNG.hashNoise(seed, row, col, "freeCellScore")
+        });
       }
     }
+    cells.sort((a, b) => b.value - a.value);
+    return cells;
   }
 
-  function addStreams(grid, params, seed) {
-    const world = State.world;
+  function applyCircularBlob(grid, reserved, centerRow, centerCol, radius, painter) {
+    let changed = 0;
+    for (let row = Math.floor(centerRow - radius); row <= Math.ceil(centerRow + radius); row++) {
+      for (let col = Math.floor(centerCol - radius); col <= Math.ceil(centerCol + radius); col++) {
+        if (!inBounds(row, col) || isReserved(reserved, row, col)) continue;
+        const dist = Math.hypot(row - centerRow, col - centerCol);
+        if (dist > radius) continue;
+        const tile = tileAt(grid, row, col);
+        if (!tile || tileIsBlocking(tile)) continue;
+        if (painter(grid, row, col, dist)) changed += 1;
+      }
+    }
+    return changed;
+  }
 
-    for (let i = 0; i < params.streamCount; i++) {
-      const rng = RNG.createSeededRandom(`${seed}|stream|${i}`);
+  function addLakes(grid, reserved, seed, targetCount) {
+    const world = State.world;
+    const rng = RNG.createSeededRandom(`${seed}|lakes`);
+    let blocked = 0;
+    let attempts = 0;
+    while (blocked < targetCount && attempts < 120) {
+      attempts += 1;
+      const centerRow = 2 + rng() * Math.max(1, world.rows - 4);
+      const centerCol = 2 + rng() * Math.max(1, world.cols - 4);
+      const radius = 1.6 + rng() * Math.max(1.8, Math.min(world.rows, world.cols) * 0.06);
+      blocked += applyCircularBlob(grid, reserved, centerRow, centerCol, radius, (localGrid, row, col) => paintLakeTile(localGrid, row, col));
+    }
+    return blocked;
+  }
+
+  function addMountains(grid, reserved, seed, targetCount) {
+    const world = State.world;
+    const rng = RNG.createSeededRandom(`${seed}|mountains`);
+    let blocked = 0;
+    let attempts = 0;
+    while (blocked < targetCount && attempts < 140) {
+      attempts += 1;
+      const centerRow = 2 + rng() * Math.max(1, world.rows - 4);
+      const centerCol = 2 + rng() * Math.max(1, world.cols - 4);
+      const radius = 1.5 + rng() * Math.max(2.0, Math.min(world.rows, world.cols) * 0.055);
+      blocked += applyCircularBlob(grid, reserved, centerRow, centerCol, radius, (localGrid, row, col, dist) => {
+        const normalized = Math.max(0, 1 - dist / Math.max(radius, 0.001));
+        return paintMountainTile(localGrid, row, col, 2.2 + normalized * 1.6);
+      });
+    }
+    return blocked;
+  }
+
+  function addRivers(grid, reserved, seed, targetCount) {
+    const world = State.world;
+    const rng = RNG.createSeededRandom(`${seed}|rivers`);
+    let blocked = 0;
+    const desiredStreams = targetCount > 0 ? Math.max(1, Math.min(2, Math.round(targetCount / Math.max(8, Math.min(world.rows, world.cols) * 0.8)))) : 0;
+
+    for (let streamIndex = 0; streamIndex < desiredStreams; streamIndex++) {
       let row = Math.floor(rng() * world.rows);
       let col = rng() > 0.5 ? 0 : world.cols - 1;
-      const length = Math.floor((world.rows + world.cols) * (0.7 + rng() * 0.35));
-
-      for (let step = 0; step < length; step++) {
+      const length = Math.max(world.rows, world.cols);
+      for (let step = 0; step < length && blocked < targetCount; step++) {
         if (!inBounds(row, col)) break;
-
-        const tile = grid[row][col];
-        tile.type = "river";
-        tile.tags.add("stream");
-        tile.elevation = 0;
-        tile.tags.delete("mountain");
-        tile.tags.delete("mountainCore");
-        tile.tags.delete("blocked");
-
+        if (!isReserved(reserved, row, col)) {
+          const tile = tileAt(grid, row, col);
+          if (tile && !tileIsBlocking(tile)) {
+            if (paintRiverTile(grid, row, col)) blocked += 1;
+          }
+        }
         if (rng() > 0.55) {
           row += rng() > 0.5 ? 1 : -1;
         } else {
           col += col === 0 ? 1 : -1;
         }
-
         row = Utils.clamp(row, 0, world.rows - 1);
         col = Utils.clamp(col, 0, world.cols - 1);
       }
     }
+
+    return blocked;
   }
 
-  function canPlaceRoad(tile) {
-    return tile.type !== "lake" && tile.type !== "river" && !tile.tags.has("mountain");
-  }
-
-  function stampRoadTile(grid, row, col) {
-    const tile = grid[row] && grid[row][col];
-    if (!tile || !canPlaceRoad(tile)) return false;
-    tile.type = "road";
-    tile.tags.add("road");
-    tile.elevation = 0;
-    return true;
-  }
-
-  function stampRoadTransition(grid, prevRow, prevCol, nextRow, nextCol) {
-    stampRoadTile(grid, prevRow, prevCol);
-
-    if (prevRow !== nextRow && prevCol !== nextCol) {
-      const verticalConnector = stampRoadTile(grid, nextRow, prevCol);
-      if (!verticalConnector) {
-        stampRoadTile(grid, prevRow, nextCol);
-      }
+  function addForests(grid, reserved, seed, targetCount) {
+    const rankedCells = scoreFreeCells(`${seed}|forests`, reserved);
+    let blocked = 0;
+    for (const cell of rankedCells) {
+      if (blocked >= targetCount) break;
+      const tile = tileAt(grid, cell.row, cell.col);
+      if (!tile || tileIsBlocking(tile)) continue;
+      if (paintForestTile(grid, cell.row, cell.col)) blocked += 1;
     }
-
-    stampRoadTile(grid, nextRow, nextCol);
-  }
-
-  function addRoads(grid, params, seed) {
-    const world = State.world;
-
-    for (let i = 0; i < params.roadCount; i++) {
-      const rng = RNG.createSeededRandom(`${seed}|road|${i}`);
-      const horizontal = rng() > 0.5;
-
-      if (horizontal) {
-        let row = Math.floor(rng() * world.rows * 0.7 + world.rows * 0.15);
-
-        for (let col = 0; col < world.cols; col++) {
-          const currentRow = row;
-          let nextRow = currentRow;
-
-          if (col < world.cols - 1 && rng() > 0.72) {
-            nextRow = Utils.clamp(currentRow + (rng() > 0.5 ? 1 : -1), 0, world.rows - 1);
-          }
-
-          stampRoadTransition(grid, currentRow, col, nextRow, Math.min(col + 1, world.cols - 1));
-          row = nextRow;
-        }
-      } else {
-        let col = Math.floor(rng() * world.cols * 0.7 + world.cols * 0.15);
-
-        for (let row = 0; row < world.rows; row++) {
-          const currentCol = col;
-          let nextCol = currentCol;
-
-          if (row < world.rows - 1 && rng() > 0.72) {
-            nextCol = Utils.clamp(currentCol + (rng() > 0.5 ? 1 : -1), 0, world.cols - 1);
-          }
-
-          stampRoadTransition(grid, row, currentCol, Math.min(row + 1, world.rows - 1), nextCol);
-          col = nextCol;
-        }
-      }
-    }
-  }
-
-  function addForest(grid, params, seed) {
-    return;
-  }
-
-  function addSettlement(grid, params, seed) {
-    return;
+    return blocked;
   }
 
   function addBaseSurface(grid, params, seed) {
     const world = State.world;
     const totalTiles = world.rows * world.cols;
-    const targetDirt = Math.floor(totalTiles * params.targetDirtCoverage / 100);
+    const targetDirt = Math.floor(totalTiles * (params.targetDirtCoverage / 100));
     let dirtAssigned = 0;
 
     for (let row = 0; row < world.rows; row++) {
       for (let col = 0; col < world.cols; col++) {
         const tile = grid[row][col];
-
-        if (tile.type === "lake" || tile.type === "river" || tile.type === "road" || tile.tags.has("mountain")) {
-          continue;
-        }
-
+        if (tile.type === "road" || tile.type === "settlement") continue;
+        if (tile.type === "forest" || tile.type === "mountain" || tile.type === "lake" || tile.type === "river") continue;
         const n = RNG.hashNoise(seed, row, col, "baseSurface");
         if (dirtAssigned < targetDirt && n > 0.82) {
           tile.type = "dirt";
-          dirtAssigned++;
+          dirtAssigned += 1;
         } else {
           tile.type = "grass";
         }
@@ -401,7 +412,7 @@ window.Game = window.Game || {};
     }
   }
 
-  function finalizeStats(grid, params) {
+  function finalizeStats(grid, params, settlements) {
     const world = State.world;
     const counts = {
       grass: 0,
@@ -410,20 +421,25 @@ window.Game = window.Game || {};
       stone: 0,
       hill: 0,
       forest: 0,
-      settlement: 0
+      settlement: 0,
+      road: 0,
+      blocked: 0,
+      playable: 0
     };
 
     for (let row = 0; row < world.rows; row++) {
       for (let col = 0; col < world.cols; col++) {
         const tile = grid[row][col];
-
-        if (tile.type === "grass") counts.grass++;
-        if (tile.type === "dirt") counts.dirt++;
-        if (tile.type === "lake" || tile.type === "river") counts.water++;
-        if (tile.type === "mountain") counts.stone++;
-        if (tile.tags.has("mountain")) counts.hill++;
-        if (tile.tags.has("forest")) counts.forest++;
-        if (tile.tags.has("settlement")) counts.settlement++;
+        if (tile.type === "grass") counts.grass += 1;
+        if (tile.type === "dirt") counts.dirt += 1;
+        if (tile.type === "road") counts.road += 1;
+        if (tile.type === "settlement") counts.settlement += 1;
+        if (tile.type === "lake" || tile.type === "river") counts.water += 1;
+        if (tile.type === "mountain") counts.stone += 1;
+        if (tile.type === "forest") counts.forest += 1;
+        if (tile.tags.has("mountain")) counts.hill += 1;
+        if (tileIsBlocking(tile)) counts.blocked += 1;
+        else counts.playable += 1;
       }
     }
 
@@ -435,31 +451,61 @@ window.Game = window.Game || {};
     params.actualHillCoverage = Utils.percent(counts.hill, total);
     params.actualForestCoverage = Utils.percent(counts.forest, total);
     params.actualSettlementCoverage = Utils.percent(counts.settlement, total);
+    params.actualRoadCoverage = Utils.percent(counts.road, total);
+    params.actualBlockedCoverage = Utils.percent(counts.blocked, total);
+    params.actualPlayableCoverage = Utils.percent(counts.playable, total);
+    params.settlementAreaCount = settlements.length;
+  }
+
+  function generateConstrainedWorld(seed, cols, rows) {
+    const world = State.world;
+    world.cols = cols;
+    world.rows = rows;
+
+    const params = Topology.generateTopologyParams(seed, cols, rows);
+    const grid = Array.from({ length: rows }, () => Array.from({ length: cols }, emptyTile));
+    const reserved = makeMask(rows, cols, false);
+    const settlements = createSettlements(grid, reserved, seed);
+    const roadEntrances = connectSettlements(grid, reserved, settlements, seed);
+
+    const total = rows * cols;
+    const blockerTargetPct = 30 + Math.floor(RNG.chanceFromSeed(seed, "blockedCoverage") * 31);
+    const blockerTargetCount = Math.max(0, Math.min(total - roadEntrances.length - settlements.length, Math.floor(total * blockerTargetPct / 100)));
+
+    const waterTarget = Math.floor(blockerTargetCount * (0.10 + RNG.chanceFromSeed(seed, "waterShare") * 0.16));
+    const mountainTarget = Math.floor(blockerTargetCount * (0.14 + RNG.chanceFromSeed(seed, "mountainShare") * 0.18));
+    const riverTarget = Math.floor(blockerTargetCount * (0.03 + RNG.chanceFromSeed(seed, "riverShare") * 0.07));
+    let blockedCount = 0;
+
+    blockedCount += addLakes(grid, reserved, seed, waterTarget);
+    blockedCount += addMountains(grid, reserved, seed, mountainTarget);
+    blockedCount += addRivers(grid, reserved, seed, riverTarget);
+    blockedCount += addForests(grid, reserved, seed, Math.max(0, blockerTargetCount - blockedCount));
+
+    addBaseSurface(grid, params, seed);
+
+    const playerStart = roadEntrances[0]
+      ? { row: roadEntrances[0].row, col: roadEntrances[0].col }
+      : { row: Math.floor(rows / 2), col: Math.floor(cols / 2) };
+
+    params.hasLake = grid.some((rowTiles) => rowTiles.some((tile) => tile.type === "lake")) ? 1 : 0;
+    params.streamCount = grid.reduce((count, rowTiles) => count + (rowTiles.some((tile) => tile.type === "river") ? 1 : 0), 0) > 0 ? 1 : 0;
+    params.hillCount = settlements.length > 0 ? Math.max(1, Math.round(mountainTarget / Math.max(1, Math.min(rows, cols)))) : 0;
+    params.roadCount = 1;
+    params.hasForest = grid.some((rowTiles) => rowTiles.some((tile) => tile.type === "forest")) ? 1 : 0;
+    params.hasSettlement = 1;
+    finalizeStats(grid, params, settlements);
+
+    return {
+      grid,
+      params,
+      playerStart
+    };
   }
 
   window.Game.Terrain = {
     generateWorld(seed, cols, rows) {
-      const world = State.world;
-
-      world.cols = cols;
-      world.rows = rows;
-
-      const params = Topology.generateTopologyParams(seed, cols, rows);
-      const grid = Array.from({ length: rows }, () => Array.from({ length: cols }, emptyTile));
-
-      addHills(grid, params, seed);
-      addLake(grid, params, seed);
-      addStreams(grid, params, seed);
-      addRoads(grid, params, seed);
-      addSettlement(grid, params, seed);
-      addForest(grid, params, seed);
-      addBaseSurface(grid, params, seed);
-      finalizeStats(grid, params);
-
-      return {
-        grid,
-        params
-      };
+      return generateConstrainedWorld(seed, cols, rows);
     }
   };
 })();
