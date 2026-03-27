@@ -32,6 +32,8 @@ Medieval + Fantasy Roleplaying & Strategy Game
 - 2.5D AI-generated characters for immersive storytelling.
 - Lightweight design ensures smooth play online or offline.
 - Long-term focus on mechanics and AI-driven interactions, with visuals evolving later.
+- Background visuals will be generated with AI using special technic which will follow map areas and locations.
+- Buildings and special "unique" objects will be geneated seperately and will be implemented after to create standardization on gameplay. 
 
 🚀 Vision
 
