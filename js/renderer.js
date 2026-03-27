@@ -1418,6 +1418,26 @@ window.Game = window.Game || {};
   }
 
 
+  function redrawElevatedTerrainOverRoads(ctx, baseImageData, cellWidth, cellHeight) {
+    const world = State.world;
+    const roadLevel = 1;
+
+    for (let row = 0; row < world.rows; row++) {
+      for (let col = 0; col < world.cols; col++) {
+        const tile = getTile(row, col);
+        if (!tile) continue;
+        if (getRenderLevel(tile) <= roadLevel) continue;
+
+        const x = Math.floor(col * cellWidth);
+        const y = Math.floor(row * cellHeight);
+        const width = Math.max(1, Math.ceil((col + 1) * cellWidth) - x);
+        const height = Math.max(1, Math.ceil((row + 1) * cellHeight) - y);
+        ctx.putImageData(baseImageData, 0, 0, x, y, width, height);
+      }
+    }
+  }
+
+
   function getProjectedTileScreenSize(worldPos, tileWidth, tileHeight) {
     const center = projectWorldToScreen(worldPos.x, WORLD_SURFACE_Y, worldPos.z);
     const east = projectWorldToScreen(worldPos.x + tileWidth, WORLD_SURFACE_Y, worldPos.z);
@@ -1565,6 +1585,7 @@ window.Game = window.Game || {};
     applyPostTileNoise(pixels, canvas.width, canvas.height, cellWidth, cellHeight, seed);
     ctx.putImageData(imageData, 0, 0);
     drawRoadOverlay(ctx, cellWidth, cellHeight);
+    redrawElevatedTerrainOverRoads(ctx, imageData, cellWidth, cellHeight);
     render.needsBackgroundRebuild = false;
     render.needsBackgroundUpload = true;
   }
