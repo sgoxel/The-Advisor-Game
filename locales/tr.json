@@ -124,8 +124,8 @@
   },
   "menu": {
     "githubPage": "Github Sayfası",
-    "save": "Dışa Aktar",
-    "load": "Yükle",
+    "save": "Harita Görselini Dışa Aktar",
+    "load": "Haritayı Yükle",
     "exportMapData": "Harita Verisini Dışa Aktar"
   }
 }

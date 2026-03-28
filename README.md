@@ -1,4 +1,4 @@
-<img src="githubpage/img/Concept Map Generation.png" width="600"/>
+<img src="_githubpage/img/Concept Map Generation.png" width="600"/>
 
 The Advisor Game
 

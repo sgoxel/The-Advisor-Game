@@ -150,7 +150,7 @@ window.Game = window.Game || {};
 
     const payload = {
       format: "simsoft-map-data",
-      version: 2,
+      version: 3,
       exportedAt: new Date().toISOString(),
       seed: world.seed || "",
       map: {
@@ -204,7 +204,7 @@ window.Game = window.Game || {};
   }
 
   function exportCurrentView() {
-    const filename = `${buildSafeBaseFilename()}.png`;
+    const filename = `map.png`;
 
     try {
       const exportCanvas = buildFullMapExportCanvas();
@@ -233,7 +233,7 @@ window.Game = window.Game || {};
   }
 
   function exportMapData() {
-    const filename = `${buildSafeBaseFilename()}-map-data.txt`;
+    const filename = `map.js`;
 
     try {
       const payload = buildMapDataExportObject();
@@ -242,8 +242,9 @@ window.Game = window.Game || {};
         return;
       }
 
-      const jsonText = JSON.stringify(payload, null, 2);
-      const blob = new Blob([jsonText], { type: "text/plain;charset=utf-8" });
+      const scriptText = `window.__SIMSOFT_IMPORTED_MAP_DATA__ = ${JSON.stringify(payload, null, 2)};
+`;
+      const blob = new Blob([scriptText], { type: "application/javascript;charset=utf-8" });
       triggerDownload(URL.createObjectURL(blob), filename, "logs.mapDataExportCompleted");
     } catch (error) {
       addLog(

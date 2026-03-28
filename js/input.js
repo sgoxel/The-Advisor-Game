@@ -213,6 +213,49 @@ window.Game = window.Game || {};
     return true;
   }
 
+
+  function resetCameraInertia() {
+    const camera = State.camera;
+    camera.inertiaVelocityX = 0;
+    camera.inertiaVelocityY = 0;
+  }
+
+  function beginCameraDrag(pos) {
+    const camera = State.camera;
+    camera.dragActive = true;
+    camera.movedWhileDragging = false;
+    camera.lastX = pos.x;
+    camera.lastY = pos.y;
+    camera.lastDragTime = performance.now();
+    resetCameraInertia();
+  }
+
+  function applyDragDelta(pos, multiplier = 1) {
+    const camera = State.camera;
+    const now = performance.now();
+    const dt = Math.max(1, now - (camera.lastDragTime || now));
+    const dx = pos.x - camera.lastX;
+    const dy = pos.y - camera.lastY;
+    if (Math.abs(dx) > 1 || Math.abs(dy) > 1) camera.movedWhileDragging = true;
+    const pan = Renderer.convertRenderDeltaToCameraDelta(-dx * multiplier, -dy * multiplier);
+    camera.x += pan.dx;
+    camera.y += pan.dy;
+    camera.inertiaVelocityX = pan.dx / dt;
+    camera.inertiaVelocityY = pan.dy / dt;
+    camera.lastX = pos.x;
+    camera.lastY = pos.y;
+    camera.lastDragTime = now;
+    Renderer.markDirty();
+  }
+
+  function endCameraDrag() {
+    const camera = State.camera;
+    camera.dragActive = false;
+    camera.lastDragTime = 0;
+    if (Math.abs(camera.inertiaVelocityX) < camera.inertiaMinVelocity) camera.inertiaVelocityX = 0;
+    if (Math.abs(camera.inertiaVelocityY) < camera.inertiaMinVelocity) camera.inertiaVelocityY = 0;
+  }
+
   function bindInputEvents() {
     const dom = State.dom;
     const camera = State.camera;
@@ -225,15 +268,7 @@ window.Game = window.Game || {};
       input.mouseY = pos.y;
 
       if (camera.dragActive) {
-        const dx = pos.x - camera.lastX;
-        const dy = pos.y - camera.lastY;
-        if (Math.abs(dx) > 1 || Math.abs(dy) > 1) camera.movedWhileDragging = true;
-        const pan = Renderer.convertRenderDeltaToCameraDelta(-dx, -dy);
-        camera.x += pan.dx;
-        camera.y += pan.dy;
-        camera.lastX = pos.x;
-        camera.lastY = pos.y;
-        Renderer.markDirty();
+        applyDragDelta(pos);
       }
 
       const picked = Renderer.pickTile(pos.x, pos.y);
@@ -248,10 +283,7 @@ window.Game = window.Game || {};
       const pos = getCanvasMousePosition(event);
       input.mouseX = pos.x;
       input.mouseY = pos.y;
-      camera.dragActive = true;
-      camera.movedWhileDragging = false;
-      camera.lastX = pos.x;
-      camera.lastY = pos.y;
+      beginCameraDrag(pos);
       dom.canvas.classList.add('dragging');
     });
 
@@ -270,12 +302,12 @@ window.Game = window.Game || {};
     }, { passive: false });
 
     window.addEventListener('mouseup', () => {
-      camera.dragActive = false;
+      endCameraDrag();
       dom.canvas.classList.remove('dragging');
     });
 
     dom.canvas.addEventListener('mouseleave', () => {
-      camera.dragActive = false;
+      endCameraDrag();
       dom.canvas.classList.remove('dragging');
       if (world.hover) {
         world.hover = null;
@@ -322,10 +354,7 @@ window.Game = window.Game || {};
       event.preventDefault();
       input.mouseX = pos.x;
       input.mouseY = pos.y;
-      camera.dragActive = true;
-      camera.movedWhileDragging = false;
-      camera.lastX = pos.x;
-      camera.lastY = pos.y;
+      beginCameraDrag(pos);
       dom.canvas.classList.add('dragging');
     }, { passive: false });
 
@@ -336,20 +365,12 @@ window.Game = window.Game || {};
       event.preventDefault();
       input.mouseX = pos.x;
       input.mouseY = pos.y;
-      const dx = pos.x - camera.lastX;
-      const dy = pos.y - camera.lastY;
-      if (Math.abs(dx) > 1 || Math.abs(dy) > 1) camera.movedWhileDragging = true;
-      const pan = Renderer.convertRenderDeltaToCameraDelta(-dx, -dy);
-      camera.x += pan.dx;
-      camera.y += pan.dy;
-      camera.lastX = pos.x;
-      camera.lastY = pos.y;
-      Renderer.markDirty();
+      applyDragDelta(pos, camera.touchDragMultiplier || 1);
     }, { passive: false });
 
     dom.canvas.addEventListener('touchend', (event) => {
       const pos = getCanvasTouchPosition(event);
-      camera.dragActive = false;
+      endCameraDrag();
       dom.canvas.classList.remove('dragging');
       if (!pos) return;
       input.mouseX = pos.x;
@@ -383,7 +404,7 @@ window.Game = window.Game || {};
     }, { passive: false });
 
     dom.canvas.addEventListener('touchcancel', () => {
-      camera.dragActive = false;
+      endCameraDrag();
       camera.movedWhileDragging = false;
       dom.canvas.classList.remove('dragging');
     }, { passive: true });
@@ -425,6 +446,26 @@ window.Game = window.Game || {};
     if (moved) Renderer.markDirty();
   }
 
+
+  function updateCameraInertia(deltaMs) {
+    const camera = State.camera;
+    if (camera.dragActive) return;
+    const dt = Math.max(0.5, Math.min(32, Number(deltaMs) || 16.67));
+    if (!camera.inertiaVelocityX && !camera.inertiaVelocityY) return;
+
+    camera.x += camera.inertiaVelocityX * dt;
+    camera.y += camera.inertiaVelocityY * dt;
+
+    const friction = Math.pow(camera.inertiaFriction || 0.92, dt / 16.67);
+    camera.inertiaVelocityX *= friction;
+    camera.inertiaVelocityY *= friction;
+
+    if (Math.abs(camera.inertiaVelocityX) < (camera.inertiaMinVelocity || 0.02)) camera.inertiaVelocityX = 0;
+    if (Math.abs(camera.inertiaVelocityY) < (camera.inertiaMinVelocity || 0.02)) camera.inertiaVelocityY = 0;
+
+    Renderer.markDirty();
+  }
+
   function updatePlayerMovement(now) {
     const player = State.world.player;
     if (!player || !player.moving) return;
@@ -445,6 +486,7 @@ window.Game = window.Game || {};
   window.Game.Input = {
     bindInputEvents,
     updateCameraFromKeyboard,
+    updateCameraInertia,
     updatePlayerMovement,
     buildPathToTarget,
     startMoveAlongPath,

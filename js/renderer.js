@@ -590,18 +590,19 @@ window.Game = window.Game || {};
     return terrainRow && terrainRow[col] ? terrainRow[col] : null;
   }
 
-  function getRenderLevel(tile) {
+  function getRenderLevel(tile, row, col) {
     if (!tile) return 1;
-    if (tile.type === "lake" || tile.type === "river") {
+    const effectiveType = Number.isInteger(row) && Number.isInteger(col) ? getTileType(row, col) : tile.type;
+    if (effectiveType === "lake" || effectiveType === "river") {
       return 0;
     }
-    if (tile.type === "mountain") {
+    if (effectiveType === "mountain") {
       return 3;
     }
-    if (tile.type === "forest" || (tile.tags && tile.tags.has("forest"))) {
+    if (effectiveType === "forest") {
       return 2;
     }
-    if (tile.type === "road" || tile.type === "grass" || tile.type === "dirt" || tile.type === "settlement") {
+    if (effectiveType === "road" || effectiveType === "grass" || effectiveType === "dirt" || effectiveType === "settlement") {
       return 1;
     }
     return 1;
@@ -626,8 +627,7 @@ window.Game = window.Game || {};
     const world = State.world;
     const row = Math.max(0, Math.min(world.rows - 1, Math.floor(rowFloat)));
     const col = Math.max(0, Math.min(world.cols - 1, Math.floor(colFloat)));
-    const tile = getTile(row, col);
-    return tile ? tile.type : null;
+    return getTileType(row, col);
   }
 
   function distanceToTypeBoundary(rowFloat, colFloat, dirY, dirX, targetType, maxDistance, stepSize) {
@@ -698,10 +698,10 @@ window.Game = window.Game || {};
     const baseRow = Math.max(0, Math.min(world.rows - 1, Math.floor(rowFloat)));
     const baseCol = Math.max(0, Math.min(world.cols - 1, Math.floor(colFloat)));
     const currentTile = getTile(baseRow, baseCol);
-    const currentLevel = getRenderLevel(currentTile);
+    const currentLevel = getRenderLevel(currentTile, baseRow, baseCol);
     const sun = getSunDirection();
 
-    if (currentTile && currentTile.type === 'mountain') {
+    if (currentTile && getTileType(baseRow, baseCol) === 'mountain') {
       const mountainRelief = computeMountainGroupRelief(seed, rowFloat, colFloat, baseRow, baseCol, sun);
       if (mountainRelief) {
         return mountainRelief;
@@ -721,7 +721,7 @@ window.Game = window.Game || {};
       }
 
       const sampleTile = getTile(Math.floor(sampleRow), Math.floor(sampleCol));
-      const sampleLevel = getRenderLevel(sampleTile);
+      const sampleLevel = getRenderLevel(sampleTile, Math.floor(sampleRow), Math.floor(sampleCol));
       if (sampleLevel > currentLevel) {
         firstHigherDistance = t;
         break;
@@ -875,10 +875,37 @@ window.Game = window.Game || {};
     }
   }
 
-  function getTileType(row, col) {
+  function getRawTileType(row, col) {
     const terrainRow = State.world.terrain[row];
     const tile = terrainRow && terrainRow[col];
     return tile ? tile.type : null;
+  }
+
+  function isRoadClearanceTile(row, col) {
+    const tile = getTile(row, col);
+    if (!tile || tile.type === 'road' || tile.type === 'settlement') return false;
+
+    const isBlockedTerrain = tile.type === 'forest'
+      || tile.type === 'mountain'
+      || tile.type === 'lake'
+      || tile.type === 'river'
+      || !!(tile.tags && (tile.tags.has('blocked') || tile.tags.has('forest') || tile.tags.has('mountain') || tile.tags.has('lake') || tile.tags.has('stream')));
+    if (!isBlockedTerrain) return false;
+
+    for (let nr = row - 1; nr <= row + 1; nr++) {
+      for (let nc = col - 1; nc <= col + 1; nc++) {
+        if (nr === row && nc === col) continue;
+        if (getRawTileType(nr, nc) === 'road') return true;
+      }
+    }
+    return false;
+  }
+
+  function getTileType(row, col) {
+    const rawType = getRawTileType(row, col);
+    if (!rawType) return null;
+    if (isRoadClearanceTile(row, col)) return 'grass';
+    return rawType;
   }
 
   function getRoadAppearanceCache() {
@@ -905,15 +932,16 @@ window.Game = window.Game || {};
         if (nr === row && nc === col) continue;
         const neighbor = getTile(nr, nc);
         if (!neighbor) continue;
-        if (neighbor.type === 'road') continue;
-        if (neighbor.type === 'lake' || neighbor.type === 'river') continue;
+        const neighborType = getTileType(nr, nc);
+        if (neighborType === 'road') continue;
+        if (neighborType === 'lake' || neighborType === 'river') continue;
         if (Math.abs(Number(neighbor.elevation || 0) - baseElevation) > 0.001) continue;
 
         const isDiagonal = nr !== row && nc !== col;
         const weight = isDiagonal ? 0.7 : 1.0;
-        neighborColors.push(hexToRgb(terrainColor(neighbor)));
+        neighborColors.push(hexToRgb(terrainColor({ type: neighborType })));
         neighborWeights.push(weight);
-        typeWeights[neighbor.type] = (typeWeights[neighbor.type] || 0) + weight;
+        typeWeights[neighborType] = (typeWeights[neighborType] || 0) + weight;
       }
     }
 
@@ -942,12 +970,13 @@ window.Game = window.Game || {};
     if (!tile) {
       return { type: 'grass', color: hexToRgb(terrainColor({ type: 'grass' })) };
     }
-    if (tile.type === 'road') {
+    const effectiveType = getTileType(row, col);
+    if (effectiveType === 'road') {
       return getRoadBaseAppearance(row, col);
     }
     return {
-      type: tile.type,
-      color: hexToRgb(terrainColor(tile))
+      type: effectiveType,
+      color: hexToRgb(terrainColor({ type: effectiveType }))
     };
   }
 
@@ -1263,7 +1292,7 @@ window.Game = window.Game || {};
 
 
   function hasRoadAt(row, col) {
-    return getTileType(row, col) === 'road';
+    return getRawTileType(row, col) === 'road';
   }
 
   function shouldRenderRoadConnection(row, col, dr, dc) {
@@ -1362,7 +1391,7 @@ window.Game = window.Game || {};
 
     for (let row = 0; row < world.rows; row++) {
       for (let col = 0; col < world.cols; col++) {
-        if (getTileType(row, col) !== 'road') continue;
+        if (getRawTileType(row, col) !== 'road') continue;
 
         const centerX = (col + 0.5) * cellWidth;
         const centerY = (row + 0.5) * cellHeight;
@@ -1424,7 +1453,8 @@ window.Game = window.Game || {};
       for (let col = 0; col < world.cols; col++) {
         const tile = getTile(row, col);
         if (!tile) continue;
-        if (getRenderLevel(tile) <= roadLevel) continue;
+        if (isRoadClearanceTile(row, col)) continue;
+        if (getRenderLevel(tile, row, col) <= roadLevel) continue;
 
         const x = Math.floor(col * cellWidth);
         const y = Math.floor(row * cellHeight);
@@ -1596,7 +1626,22 @@ window.Game = window.Game || {};
 
     gl.bindTexture(gl.TEXTURE_2D, render.backgroundTexture);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, render.worldBackgroundCanvas);
+    try {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, render.worldBackgroundCanvas);
+    } catch (error) {
+      console.warn("Background texture upload failed.", error);
+      render.needsBackgroundRebuild = true;
+      render.needsBackgroundUpload = true;
+      render.backgroundTextureReady = false;
+      rebuildBackgroundCanvas();
+      if (!render.worldBackgroundCanvas) return false;
+      try {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, render.worldBackgroundCanvas);
+      } catch (retryError) {
+        console.warn("Background texture upload retry failed.", retryError);
+        return false;
+      }
+    }
 
     render.needsBackgroundUpload = false;
     render.backgroundTextureReady = true;

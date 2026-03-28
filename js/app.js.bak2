@@ -538,25 +538,15 @@ window.Game = window.Game || {};
     const rootFolderName = String(files[0].webkitRelativePath || "").split("/")[0] || "selected folder";
     localMapFileCache.sourceLabel = rootFolderName;
 
-    let indexedCount = 0;
-    let skippedNestedCount = 0;
     for (const file of files) {
-      const rawRelativePath = String((file && file.webkitRelativePath) || (file && file.name) || "");
-      const normalizedRelativePath = normalizeRelativePath(rawRelativePath);
-      const pathParts = normalizedRelativePath ? normalizedRelativePath.split("/").filter(Boolean) : [];
-      const isDirectChild = pathParts.length <= 2;
-      if (!isDirectChild) {
-        skippedNestedCount += 1;
-        continue;
-      }
+      const relativePath = normalizeRelativePath((file && file.webkitRelativePath) || (file && file.name) || "");
       const fileName = String(file && file.name ? file.name : "").toLowerCase();
-      if (normalizedRelativePath) localMapFileCache.byRelativePath.set(normalizedRelativePath, file);
+      if (relativePath) localMapFileCache.byRelativePath.set(relativePath, file);
       if (fileName) localMapFileCache.byName.set(fileName, file);
       localMapFileCache.orderedFiles.push(file);
-      indexedCount += 1;
     }
 
-    UI.addLog(`Local map folder indexed.`, `${indexedCount} direct files scanned from ${rootFolderName}.` + (skippedNestedCount ? ` ${skippedNestedCount} nested files were ignored.` : ""));
+    UI.addLog(`Local map folder indexed.`, `${files.length} files scanned from ${rootFolderName}.`);
 
     const firstPair = getFirstMapPairFromSelectedFolder();
     if (!firstPair) {
@@ -588,36 +578,27 @@ window.Game = window.Game || {};
   }
 
   async function tryLoadMapFromPngPath(seed, pngUrl, sourceLabel) {
-    let sourceImage = null;
+    let image = null;
     try {
-      sourceImage = await loadImageElement(pngUrl);
+      image = await loadImageElement(pngUrl);
     } catch (error) {
-      return { imageFound: false, imported: null };
+      return null;
     }
 
     try {
-      const payload = await extractMapDataFromImageSource(sourceImage);
-      if (!payload) {
-        return { imageFound: true, imported: null };
-      }
+      const payload = await extractMapDataFromImageSource(image);
+      if (!payload) return null;
       const resolvedSeed = resolveImportedSeed(seed, payload);
-      let renderImage = await loadImageFromPayload(payload);
-      if (!renderImage) {
-        renderImage = sourceImage;
-      }
-      await cacheImportedMap(resolvedSeed, payload, renderImage, sourceLabel);
+      await cacheImportedMap(resolvedSeed, payload, image, sourceLabel);
       if (resolvedSeed !== seed) {
-        await cacheImportedMap(seed, payload, renderImage, sourceLabel);
+        await cacheImportedMap(seed, payload, image, sourceLabel);
       }
       return {
-        imageFound: true,
-        imported: {
-          seed: resolvedSeed,
-          payload,
-          image: renderImage,
-          source: sourceLabel,
-          loadedFromEmbeddedPng: true
-        }
+        seed: resolvedSeed,
+        payload,
+        image,
+        source: sourceLabel,
+        loadedFromEmbeddedPng: true
       };
     } catch (error) {
       throw error;
@@ -652,61 +633,57 @@ window.Game = window.Game || {};
     const safeSeed = (seed || "").trim();
     if (!safeSeed) return null;
 
-    const candidates = [
-      {
-        key: `${safeSeed}`,
-        pngUrl: `map/${encodeURIComponent(safeSeed)}.png`,
-        jsUrl: `map/${encodeURIComponent(safeSeed)}.js`,
-        sourceLabel: "map folder (seed root)",
-        label: `${safeSeed} in /map`
-      },
-      {
-        key: `${safeSeed}`,
-        pngUrl: `map/${encodeURIComponent(safeSeed)}/${encodeURIComponent(safeSeed)}.png`,
-        jsUrl: `map/${encodeURIComponent(safeSeed)}/${encodeURIComponent(safeSeed)}.js`,
-        sourceLabel: "map folder (seed subfolder)",
-        label: `${safeSeed} in /map/${safeSeed}`
-      },
-      {
-        key: "map",
-        pngUrl: "map/map.png",
-        jsUrl: "map/map.js",
-        sourceLabel: "map folder (fixed map)",
-        label: "map.png in /map"
-      }
-    ];
+    const seedPngUrl = `map/${encodeURIComponent(safeSeed)}.png`;
+    const seedJsUrl = `map/${encodeURIComponent(safeSeed)}.js`;
+    const fixedPngUrl = "map/map.png";
+    const fixedJsUrl = "map/map.js";
 
-    let stepIndex = 1;
-    for (const candidate of candidates) {
-      UI.addLog(`Startup load step ${stepIndex}/5: trying PNG.`, `Path: ${candidate.pngUrl}`);
-      let pngResult = null;
-      try {
-        pngResult = await tryLoadMapFromPngPath(candidate.key, candidate.pngUrl, candidate.sourceLabel);
-      } catch (error) {
-        UI.addLog(`Startup PNG step failed.`, error && error.message ? error.message : String(error));
+    UI.addLog(`Startup load step 1/5: trying ${safeSeed}.png.`, `Path: ${seedPngUrl}`);
+    try {
+      const imported = await tryLoadMapFromPngPath(safeSeed, seedPngUrl, "map folder (seed PNG)");
+      if (imported) {
+        UI.addLog(`Startup load succeeded with ${safeSeed}.png.`);
+        return imported;
       }
+      UI.addLog(`Startup load step 1/5 failed.`, `${seedPngUrl} could not be loaded or did not contain embedded map data.`);
+    } catch (error) {
+      UI.addLog(`Startup load step 1/5 failed.`, error && error.message ? error.message : String(error));
+    }
 
-      if (pngResult && pngResult.imported) {
-        UI.addLog(`Startup load succeeded with PNG.`, `Source: ${candidate.label}`);
-        return pngResult.imported;
+    UI.addLog(`Startup load step 2/5: trying ${safeSeed}.js.`, `Path: ${seedJsUrl}`);
+    try {
+      const imported = await tryLoadMapFromJsPath(safeSeed, seedJsUrl, "map folder (seed JS)");
+      if (imported) {
+        UI.addLog(`Startup load succeeded with ${safeSeed}.js.`);
+        return imported;
       }
+      UI.addLog(`Startup load step 2/5 failed.`, `${seedJsUrl} did not provide valid map data.`);
+    } catch (error) {
+      UI.addLog(`Startup load step 2/5 failed.`, error && error.message ? error.message : String(error));
+    }
 
-      if (pngResult && pngResult.imageFound) {
-        UI.addLog(`PNG was found but embedded map data could not be decoded.`, `Trying JS sidecar in the same folder: ${candidate.jsUrl}`);
-        try {
-          const importedFromJs = await tryLoadMapFromJsPath(candidate.key, candidate.jsUrl, `${candidate.sourceLabel} JS`);
-          if (importedFromJs) {
-            UI.addLog(`Startup load succeeded with JS sidecar.`, `Source: ${candidate.jsUrl}`);
-            return importedFromJs;
-          }
-          UI.addLog(`JS sidecar did not provide a complete map.`, candidate.jsUrl);
-        } catch (error) {
-          UI.addLog(`JS sidecar load failed.`, error && error.message ? error.message : String(error));
-        }
-      } else {
-        UI.addLog(`PNG file was not found.`, candidate.pngUrl);
+    UI.addLog(`Startup load step 3/5: trying map.png.`, `Path: ${fixedPngUrl}`);
+    try {
+      const imported = await tryLoadMapFromPngPath("map", fixedPngUrl, "map folder (fixed map.png)");
+      if (imported) {
+        UI.addLog("Startup load succeeded with map.png.");
+        return imported;
       }
-      stepIndex += 1;
+      UI.addLog("Startup load step 3/5 failed.", `${fixedPngUrl} could not be loaded or did not contain embedded map data.`);
+    } catch (error) {
+      UI.addLog("Startup load step 3/5 failed.", error && error.message ? error.message : String(error));
+    }
+
+    UI.addLog(`Startup load step 4/5: trying map.js.`, `Path: ${fixedJsUrl}`);
+    try {
+      const imported = await tryLoadMapFromJsPath("map", fixedJsUrl, "map folder (fixed map.js)");
+      if (imported) {
+        UI.addLog("Startup load succeeded with map.js.");
+        return imported;
+      }
+      UI.addLog("Startup load step 4/5 failed.", `${fixedJsUrl} did not provide valid map data.`);
+    } catch (error) {
+      UI.addLog("Startup load step 4/5 failed.", error && error.message ? error.message : String(error));
     }
 
     UI.addLog("Startup load step 5/5: generating a new map.");
@@ -721,14 +698,17 @@ window.Game = window.Game || {};
     const jsUrl = `map/${encodeURIComponent(safeSeed)}.js`;
 
     try {
-      const pngResult = await tryLoadMapFromPngPath(safeSeed, pngUrl, "map folder (seed PNG)");
-      if (pngResult && pngResult.imported) return pngResult.imported;
-      if (pngResult && pngResult.imageFound) {
-        const importedFromJs = await tryLoadMapFromJsPath(safeSeed, jsUrl, "map folder (seed JS)");
-        if (importedFromJs) return importedFromJs;
-      }
+      const importedFromPng = await tryLoadMapFromPngPath(safeSeed, pngUrl, "map folder (seed PNG)");
+      if (importedFromPng) return importedFromPng;
     } catch (error) {
-      UI.addLog(`Stored seed files could not be loaded for ${safeSeed}.`, error && error.message ? error.message : String(error));
+      UI.addLog(`Stored seed PNG could not be loaded for ${safeSeed}.`, error && error.message ? error.message : String(error));
+    }
+
+    try {
+      const importedFromJs = await tryLoadMapFromJsPath(safeSeed, jsUrl, "map folder (seed JS)");
+      if (importedFromJs) return importedFromJs;
+    } catch (error) {
+      UI.addLog(`Stored seed JS could not be loaded for ${safeSeed}.`, error && error.message ? error.message : String(error));
     }
 
     const cached = await tryLoadSeedFilesFromCache(safeSeed);
@@ -973,14 +953,8 @@ window.Game = window.Game || {};
   }
 
   function loop(timestamp) {
-    const now = timestamp || performance.now();
-    const previousTimestamp = loop.__lastTimestamp || now;
-    const deltaMs = now - previousTimestamp;
-    loop.__lastTimestamp = now;
-
     Input.updateCameraFromKeyboard();
-    Input.updateCameraInertia(deltaMs);
-    Input.updatePlayerMovement(now);
+    Input.updatePlayerMovement(timestamp || performance.now());
     Renderer.updateCameraFollow();
     Renderer.renderWorld();
     Minimap.renderMinimap();

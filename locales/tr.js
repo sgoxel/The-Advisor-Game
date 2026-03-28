@@ -21,8 +21,9 @@ window.Game.Locales.tr = {
   },
   "menu": {
     "githubPage": "Github Sayfası",
-    "save": "Dışa Aktar",
-    "load": "Yükle"
+    "save": "Harita Görselini Dışa Aktar",
+    "load": "Haritayı Yükle",
+    "exportMapData": "Harita Verisini Dışa Aktar"
   },
   "stats": {
     "gold": "Altın",

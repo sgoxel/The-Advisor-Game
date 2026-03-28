@@ -229,3 +229,21 @@ Description: Replaced PNG metadata embedding with steganographic PNG export/impo
 - Added IndexedDB-based local cache for successfully imported map PNG+JSON payloads.
 - Under file:// startup, when browser canvas security blocks steganographic decoding of map/<SEED>.png, the app now falls back to the last cached copy of that seed if it was loaded manually before.
 - Added clearer log text explaining that direct startup decoding from local disk is blocked by browser security and that one successful manual load seeds the cache for later sessions.
+
+
+Version: 108
+Description: Startup map import now first checks the fixed file /map/map.png instead of matching the current SEED to the filename. The PNG export now defaults to the filename map.png. The embedded JSON payload already carries the map SEED, and the loader now applies that embedded SEED to the world after import. This allows the app to boot from /map/map.png, read the embedded SEED and map data, and load the correct map without renaming the file to the SEED value.
+Reason: Support a fixed startup filename without requiring directory listing, wildcard lookup, or SEED-based filenames.
+
+
+Update 24
+Modified files: js/ui.js, js/app.js, js/README.txt
+Description: Export Map Data now downloads a .json file instead of .txt. Map loading now prefers matching .json sidecar files and still accepts legacy .txt sidecars as fallback for backward compatibility. Note: this extension change does not remove Chrome file:// authorization restrictions by itself; local file access behavior is controlled by the browser.
+
+
+Version: v114
+Description: Startup map loading now checks PNG files in this order: /map/<SEED>.png, /map/<SEED>/<SEED>.png, then /map/map.png. A matching JS sidecar is only attempted when the PNG exists but its embedded map data cannot be decoded. PNG imports now prefer the payload's embedded mapImage.dataUrl for rendering, which avoids file:// tainted-canvas texture upload errors when WebGL draws the gameplay background.
+
+
+### Update 35
+Description: Renamed the main menu export action to 'Export Map Image' and added inertial camera dragging for mouse and touch so map panning continues smoothly after release, with improved touch responsiveness on Android devices.

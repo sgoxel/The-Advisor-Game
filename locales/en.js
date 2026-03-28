@@ -21,8 +21,9 @@ window.Game.Locales.en = {
   },
   "menu": {
     "githubPage": "Github Page",
-    "save": "Export",
-    "load": "Load"
+    "save": "Export Map Image",
+    "load": "Load Map",
+    "exportMapData": "Export Map Data"
   },
   "stats": {
     "gold": "Gold",
