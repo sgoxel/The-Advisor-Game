@@ -207,143 +207,37 @@ window.Game = window.Game || {};
     return settlements.slice(0, Math.max(2, Math.min(10, settlements.length)));
   }
 
-  function getSettlementRoadStart(area) {
+  function getSettlementGateCandidates(area) {
+    const candidates = [];
+    const top = area.top;
     const bottom = area.top + area.height - 1;
-    const col = area.left + Math.floor(area.width / 2);
-    const row = bottom + 1;
-    if (inBounds(row, col)) {
-      return { row, col, adjacentRow: bottom, adjacentCol: col };
+    const left = area.left;
+    const right = area.left + area.width - 1;
+
+    for (let col = left; col <= right; col++) {
+      candidates.push({ row: top - 1, col, adjacentRow: top, adjacentCol: col });
+      candidates.push({ row: bottom + 1, col, adjacentRow: bottom, adjacentCol: col });
     }
-    const fallbackRow = Math.max(0, area.top - 1);
-    return { row: fallbackRow, col, adjacentRow: area.top, adjacentCol: col };
+    for (let row = top; row <= bottom; row++) {
+      candidates.push({ row, col: left - 1, adjacentRow: row, adjacentCol: left });
+      candidates.push({ row, col: right + 1, adjacentRow: row, adjacentCol: right });
+    }
+
+    return candidates.filter((c) => inBounds(c.row, c.col));
   }
 
-  function findRoadPath(grid, reserved, startRow, startCol, endRow, endCol, seedSalt, avoidKeys) {
-    if (!inBounds(startRow, startCol) || !inBounds(endRow, endCol)) return null;
-
-    const rows = State.world.rows;
-    const cols = State.world.cols;
-    const total = rows * cols;
-    const gScore = new Float64Array(total);
-    const visited = new Uint8Array(total);
-    const parent = new Int32Array(total);
-    for (let i = 0; i < total; i++) {
-      gScore[i] = Number.POSITIVE_INFINITY;
-      parent[i] = -1;
-    }
-
-    const startIndex = startRow * cols + startCol;
-    const endIndex = endRow * cols + endCol;
-    const open = [startIndex];
-    gScore[startIndex] = 0;
-
-    function cellIndex(row, col) {
-      return row * cols + col;
-    }
-
-    function heuristic(row, col) {
-      return Math.abs(row - endRow) + Math.abs(col - endCol);
-    }
-
-    function traversalCost(row, col) {
-      if (row === endRow && col === endCol) return 1;
-      if (avoidKeys && avoidKeys.has(`${row},${col}`) && !(row === startRow && col === startCol)) return Number.POSITIVE_INFINITY;
-      const tile = tileAt(grid, row, col);
-      if (!tile) return Number.POSITIVE_INFINITY;
-      if (tile.type === "settlement") return Number.POSITIVE_INFINITY;
-      if (isReserved(reserved, row, col) && tile.type !== "road") return Number.POSITIVE_INFINITY;
-      let cost = 1;
-      if (tile.type === "road") cost = 0.35;
-      else if (tile.type === "grass") cost = 1;
-      else if (tile.type === "dirt") cost = 1.05;
-      else if (tileIsBlocking(tile)) cost = 3.6;
-      cost += RNG.hashNoise(seedSalt, row, col, "roadPathJitter") * 0.04;
-      return cost;
-    }
-
-    while (open.length) {
-      let bestOpenIndex = 0;
-      let bestScore = Number.POSITIVE_INFINITY;
-      for (let i = 0; i < open.length; i++) {
-        const index = open[i];
-        if (visited[index]) continue;
-        const row = Math.floor(index / cols);
-        const col = index % cols;
-        const score = gScore[index] + heuristic(row, col);
-        if (score < bestScore) {
-          bestScore = score;
-          bestOpenIndex = i;
-        }
-      }
-
-      const currentIndex = open.splice(bestOpenIndex, 1)[0];
-      if (visited[currentIndex]) continue;
-      if (currentIndex === endIndex) break;
-      visited[currentIndex] = 1;
-
-      const currentRow = Math.floor(currentIndex / cols);
-      const currentCol = currentIndex % cols;
-      const neighbors = [
-        [currentRow - 1, currentCol],
-        [currentRow + 1, currentCol],
-        [currentRow, currentCol - 1],
-        [currentRow, currentCol + 1]
-      ];
-
-      for (const [nextRow, nextCol] of neighbors) {
-        if (!inBounds(nextRow, nextCol)) continue;
-        const nextIndex = cellIndex(nextRow, nextCol);
-        if (visited[nextIndex]) continue;
-        const stepCost = traversalCost(nextRow, nextCol);
-        if (!Number.isFinite(stepCost)) continue;
-        const tentative = gScore[currentIndex] + stepCost;
-        if (tentative < gScore[nextIndex]) {
-          gScore[nextIndex] = tentative;
-          parent[nextIndex] = currentIndex;
-          open.push(nextIndex);
-        }
+  function chooseGate(area, targetRow, targetCol, reserved) {
+    const candidates = getSettlementGateCandidates(area).filter((candidate) => !isReserved(reserved, candidate.row, candidate.col));
+    let best = null;
+    let bestScore = Infinity;
+    for (const candidate of candidates) {
+      const dist = Math.hypot(candidate.row - targetRow, candidate.col - targetCol);
+      if (dist < bestScore) {
+        bestScore = dist;
+        best = candidate;
       }
     }
-
-    if (!Number.isFinite(gScore[endIndex])) return null;
-
-    const path = [];
-    let cursor = endIndex;
-    while (cursor !== -1) {
-      path.push({ row: Math.floor(cursor / cols), col: cursor % cols });
-      if (cursor === startIndex) break;
-      cursor = parent[cursor];
-    }
-
-    return path.reverse();
-  }
-
-  function stampRoadPath(grid, reserved, path) {
-    if (!Array.isArray(path)) return;
-    for (const cell of path) {
-      stampRoadTile(grid, reserved, cell.row, cell.col);
-    }
-  }
-
-
-  function findNearestJunctionCell(grid, reserved, targetRow, targetCol, forbiddenKeys) {
-    const world = State.world;
-    const maxRadius = Math.max(world.rows, world.cols);
-    for (let radius = 0; radius <= maxRadius; radius++) {
-      for (let row = Math.max(0, Math.floor(targetRow - radius)); row <= Math.min(world.rows - 1, Math.ceil(targetRow + radius)); row++) {
-        for (let col = Math.max(0, Math.floor(targetCol - radius)); col <= Math.min(world.cols - 1, Math.ceil(targetCol + radius)); col++) {
-          if (Math.max(Math.abs(row - targetRow), Math.abs(col - targetCol)) !== radius) continue;
-          const key = `${row},${col}`;
-          if (forbiddenKeys && forbiddenKeys.has(key)) continue;
-          const tile = tileAt(grid, row, col);
-          if (!tile) continue;
-          if (tile.type === "settlement") continue;
-          if (isReserved(reserved, row, col)) continue;
-          return { row, col };
-        }
-      }
-    }
-    return null;
+    return best || candidates[0] || null;
   }
 
   function stampLineRoad(grid, reserved, startRow, startCol, endRow, endCol) {
@@ -364,104 +258,42 @@ window.Game = window.Game || {};
   }
 
   function connectSettlements(grid, reserved, settlements, seed) {
-    const gates = settlements.map((settlement) => ({
-      settlementId: settlement.id,
-      ...getSettlementRoadStart(settlement)
-    }));
+    const remaining = settlements.slice(1);
+    const ordered = [settlements[0]];
 
-    if (!gates.length) return [];
-
-    const centroid = gates.reduce((acc, gate) => {
-      acc.row += gate.row;
-      acc.col += gate.col;
-      return acc;
-    }, { row: 0, col: 0 });
-    centroid.row /= gates.length;
-    centroid.col /= gates.length;
-
-    const sortedByCentroid = gates.slice().sort((a, b) => {
-      const da = Math.hypot(a.row - centroid.row, a.col - centroid.col);
-      const db = Math.hypot(b.row - centroid.row, b.col - centroid.col);
-      return da - db;
-    });
-
-    const gateKeys = new Set(gates.map((gate) => `${gate.row},${gate.col}`));
-    const protectedGateKeys = new Set();
-    for (const gate of gates) {
-      protectedGateKeys.add(`${gate.row},${gate.col}`);
-      if (inBounds(gate.row, gate.col - 1)) protectedGateKeys.add(`${gate.row},${gate.col - 1}`);
-      if (inBounds(gate.row, gate.col + 1)) protectedGateKeys.add(`${gate.row},${gate.col + 1}`);
-    }
-    const forbiddenKeys = new Set(gateKeys);
-    const primaryJunction = findNearestJunctionCell(grid, reserved, centroid.row, centroid.col, forbiddenKeys) || { row: sortedByCentroid[0].row, col: sortedByCentroid[0].col };
-    const junctions = [primaryJunction];
-    const addSecondaryJunction = gates.length >= 5;
-    if (addSecondaryJunction) {
-      const farGate = sortedByCentroid[sortedByCentroid.length - 1];
-      const secondaryTargetRow = (centroid.row + farGate.row) / 2;
-      const secondaryTargetCol = (centroid.col + farGate.col) / 2;
-      const secondaryJunction = findNearestJunctionCell(grid, reserved, secondaryTargetRow, secondaryTargetCol, new Set([...forbiddenKeys, `${primaryJunction.row},${primaryJunction.col}`]));
-      if (secondaryJunction && (secondaryJunction.row !== primaryJunction.row || secondaryJunction.col !== primaryJunction.col)) {
-        junctions.push(secondaryJunction);
+    while (remaining.length) {
+      const current = ordered[ordered.length - 1];
+      let bestIndex = 0;
+      let bestDistance = Infinity;
+      for (let i = 0; i < remaining.length; i++) {
+        const candidate = remaining[i];
+        const distance = Math.hypot(current.centerRow - candidate.centerRow, current.centerCol - candidate.centerCol);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestIndex = i;
+        }
       }
+      ordered.push(remaining.splice(bestIndex, 1)[0]);
     }
 
-    const connectionCounts = new Map(gates.map((gate) => [gate.settlementId, 0]));
     const roadEntrances = [];
-
-    for (const gate of gates) {
-      const stemRow = inBounds(gate.row + 1, gate.col) ? gate.row + 1 : gate.row;
-      const stemCol = gate.col;
-      stampRoadTile(grid, reserved, gate.row, gate.col);
-      if (stemRow !== gate.row || stemCol !== gate.col) {
-        stampRoadTile(grid, reserved, stemRow, stemCol);
-      }
-
-      const primaryJunction = junctions.slice().sort((a, b) => Math.hypot(a.row - stemRow, a.col - stemCol) - Math.hypot(b.row - stemRow, b.col - stemCol))[0];
-      const avoidKeys = new Set(protectedGateKeys);
-      const primaryPath = findRoadPath(grid, reserved, stemRow, stemCol, primaryJunction.row, primaryJunction.col, `${seed}|road|${gate.settlementId}|primary`, avoidKeys);
-      if (primaryPath && primaryPath.length) {
-        stampRoadPath(grid, reserved, primaryPath);
-        connectionCounts.set(gate.settlementId, 1);
-        roadEntrances.push({ settlementId: gate.settlementId, row: gate.row, col: gate.col, adjacentRow: gate.adjacentRow, adjacentCol: gate.adjacentCol, stemRow, stemCol });
-      }
+    for (let i = 0; i < ordered.length - 1; i++) {
+      const current = ordered[i];
+      const next = ordered[i + 1];
+      const gateA = chooseGate(current, next.centerRow, next.centerCol, reserved);
+      const gateB = chooseGate(next, current.centerRow, current.centerCol, reserved);
+      if (!gateA || !gateB) continue;
+      stampLineRoad(grid, reserved, gateA.row, gateA.col, gateB.row, gateB.col);
+      roadEntrances.push({ settlementId: current.id, row: gateA.row, col: gateA.col, adjacentRow: gateA.adjacentRow, adjacentCol: gateA.adjacentCol });
+      roadEntrances.push({ settlementId: next.id, row: gateB.row, col: gateB.col, adjacentRow: gateB.adjacentRow, adjacentCol: gateB.adjacentCol });
     }
 
-    if (junctions.length > 1) {
-      const a = junctions[0];
-      const b = junctions[1];
-      const trunkPath = findRoadPath(grid, reserved, a.row, a.col, b.row, b.col, `${seed}|road|junctions`, protectedGateKeys);
-      if (trunkPath && trunkPath.length) {
-        stampRoadPath(grid, reserved, trunkPath);
-      }
+    const uniqueEntrances = new Map();
+    for (const entry of roadEntrances) {
+      const key = `${entry.settlementId}`;
+      if (!uniqueEntrances.has(key)) uniqueEntrances.set(key, entry);
     }
-
-    const secondaryCandidates = gates
-      .filter((gate) => connectionCounts.get(gate.settlementId) === 1)
-      .map((gate) => ({
-        gate,
-        score: Math.abs(gate.col - centroid.col) + Math.abs(gate.row - centroid.row) + RNG.hashNoise(seed, gate.row, gate.col, "secondaryRoadChance")
-      }))
-      .sort((a, b) => b.score - a.score);
-
-    const extraLinks = junctions.length > 1 ? Math.min(junctions.length, Math.max(1, Math.floor(gates.length / 4))) : 0;
-    for (let i = 0; i < extraLinks && i < secondaryCandidates.length; i++) {
-      const gate = secondaryCandidates[i].gate;
-      if (connectionCounts.get(gate.settlementId) >= 2) continue;
-      const stemRow = inBounds(gate.row + 1, gate.col) ? gate.row + 1 : gate.row;
-      const stemCol = gate.col;
-      const alternativeJunction = junctions
-        .filter((junction) => junction.row !== stemRow || junction.col !== stemCol)
-        .sort((a, b) => Math.hypot(a.row - stemRow, a.col - stemCol) - Math.hypot(b.row - stemRow, b.col - stemCol))[0];
-      if (!alternativeJunction) continue;
-      const avoidKeys = new Set(protectedGateKeys);
-      const secondaryPath = findRoadPath(grid, reserved, stemRow, stemCol, alternativeJunction.row, alternativeJunction.col, `${seed}|road|${gate.settlementId}|secondary`, avoidKeys);
-      if (!secondaryPath || !secondaryPath.length) continue;
-      stampRoadPath(grid, reserved, secondaryPath);
-      connectionCounts.set(gate.settlementId, connectionCounts.get(gate.settlementId) + 1);
-    }
-
-    return roadEntrances;
+    return ordered.map((settlement) => uniqueEntrances.get(`${settlement.id}`)).filter(Boolean);
   }
 
   function scoreFreeCells(seed, reserved) {
@@ -697,8 +529,10 @@ window.Game = window.Game || {};
 
   function addBaseSurface(grid, params, seed) {
     const world = State.world;
-    const dirtRatio = Utils.clamp((params.targetDirtCoverage || 30) / 100, 0.30, 0.70);
+    const totalTiles = world.rows * world.cols;
+    const targetDirt = Math.floor(totalTiles * (params.targetDirtCoverage / 100));
     const dirtSeed = `${seed}|dirtClusters`;
+    const dirtAnchors = createClusterAnchors(dirtSeed, makeMask(world.rows, world.cols, false), Math.max(3, Math.min(7, Math.round(Math.min(world.rows, world.cols) / 16))), Math.max(5, Math.round(Math.min(world.rows, world.cols) * 0.07)));
 
     for (let row = 0; row < world.rows; row++) {
       for (let col = 0; col < world.cols; col++) {
@@ -709,94 +543,26 @@ window.Game = window.Game || {};
       }
     }
 
-    const availableCells = [];
+    const candidates = [];
     for (let row = 0; row < world.rows; row++) {
       for (let col = 0; col < world.cols; col++) {
         const tile = grid[row][col];
         if (!tile || tile.type !== "grass") continue;
-        availableCells.push({ row, col });
-      }
-    }
-
-    const targetDirt = Math.max(0, Math.min(availableCells.length, Math.round(availableCells.length * dirtRatio)));
-    if (targetDirt <= 0) return;
-
-    const dirtReserved = makeMask(world.rows, world.cols, false);
-    for (let row = 0; row < world.rows; row++) {
-      for (let col = 0; col < world.cols; col++) {
-        const tile = grid[row][col];
-        if (!tile || tile.type !== "grass") dirtReserved[row][col] = true;
-      }
-    }
-
-    let dirtCount = fillClusteredAreas(grid, dirtReserved, dirtSeed, targetDirt, {
-      clusterKey: "dirt",
-      clusterCount: Math.max(4, Math.min(10, Math.round(Math.min(world.rows, world.cols) / 12))),
-      spacing: Math.max(5, Math.round(Math.min(world.rows, world.cols) * 0.06)),
-      wobble: 6,
-      minRadius: 2.4,
-      maxRadius: Math.max(4.5, Math.min(world.rows, world.cols) * 0.10),
-      maxAttempts: 360,
-      painter: (localGrid, row, col) => {
-        const tile = tileAt(localGrid, row, col);
-        if (!tile || tile.type !== "grass") return false;
-        tile.type = "dirt";
-        dirtReserved[row][col] = true;
-        return true;
-      }
-    });
-
-    if (dirtCount < targetDirt) {
-      const fillerCandidates = [];
-      for (let row = 0; row < world.rows; row++) {
-        for (let col = 0; col < world.cols; col++) {
-          const tile = grid[row][col];
-          if (!tile || tile.type !== "grass") continue;
-          let adjacentDirt = 0;
-          for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
-            for (let colOffset = -1; colOffset <= 1; colOffset++) {
-              if (rowOffset === 0 && colOffset === 0) continue;
-              const neighbor = tileAt(grid, row + rowOffset, col + colOffset);
-              if (neighbor && neighbor.type === "dirt") adjacentDirt += 1;
-            }
-          }
-          if (adjacentDirt <= 0) continue;
-          fillerCandidates.push({
-            row,
-            col,
-            score: adjacentDirt * 10 + RNG.hashNoise(dirtSeed, row, col, "dirtFill")
-          });
+        let clusterInfluence = 0;
+        for (const anchor of dirtAnchors) {
+          const distance = Math.hypot(anchor.row - row, anchor.col - col);
+          clusterInfluence = Math.max(clusterInfluence, Math.max(0, 1 - distance / Math.max(3.5, Math.min(world.rows, world.cols) * 0.09)));
         }
-      }
-
-      fillerCandidates.sort((a, b) => b.score - a.score);
-      for (const candidate of fillerCandidates) {
-        if (dirtCount >= targetDirt) break;
-        const tile = grid[candidate.row][candidate.col];
-        if (!tile || tile.type !== "grass") continue;
-        tile.type = "dirt";
-        dirtCount += 1;
+        const noise = RNG.hashNoise(seed, row, col, "baseSurface");
+        const score = clusterInfluence * 0.82 + noise * 0.18;
+        candidates.push({ row, col, score });
       }
     }
 
-    if (dirtCount < targetDirt) {
-      const finalCandidates = [];
-      for (let row = 0; row < world.rows; row++) {
-        for (let col = 0; col < world.cols; col++) {
-          const tile = grid[row][col];
-          if (!tile || tile.type !== "grass") continue;
-          const noise = RNG.hashNoise(dirtSeed, row, col, "dirtFinalFill");
-          finalCandidates.push({ row, col, score: noise });
-        }
-      }
-      finalCandidates.sort((a, b) => b.score - a.score);
-      for (const candidate of finalCandidates) {
-        if (dirtCount >= targetDirt) break;
-        const tile = grid[candidate.row][candidate.col];
-        if (!tile || tile.type !== "grass") continue;
-        tile.type = "dirt";
-        dirtCount += 1;
-      }
+    candidates.sort((a, b) => b.score - a.score);
+    for (let i = 0; i < Math.min(targetDirt, candidates.length); i++) {
+      const cell = candidates[i];
+      grid[cell.row][cell.col].type = "dirt";
     }
   }
 

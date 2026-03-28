@@ -247,3 +247,8 @@ Description: Startup map loading now checks PNG files in this order: /map/<SEED>
 
 ### Update 35
 Description: Renamed the main menu export action to 'Export Map Image' and added inertial camera dragging for mouse and touch so map panning continues smoothly after release, with improved touch responsiveness on Android devices.
+
+Date: 2026-03-28
+Modified files: js/terrain.js, js/topology.js, js/README.txt
+Description: Reworked settlement road generation so each settlement road now starts from the tile directly below the midpoint of the settlement's bottom edge, then connects into a junction-based road network instead of chaining settlements in a fixed order. Added protected gate routing so settlement exits stay clean. Reworked dirt generation into clustered blobs and changed dirt targeting so dirt occupies 30% to 70% of the combined grass+dirt surface area.
+Reason: Meet the requested settlement connection logic and clustered dirt coverage constraints with minimal architectural impact.

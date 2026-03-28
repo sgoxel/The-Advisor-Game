@@ -37,7 +37,7 @@ window.Game = window.Game || {};
         ? Math.round((0.08 + RNG.chanceFromSeed(seed, "forestCoverage") * 0.22) * 100)
         : 0;
 
-      const dirtCoverage = Math.round((0.30 + RNG.chanceFromSeed(seed, "dirtCoverage") * 0.40) * 100);
+      const dirtCoverage = Math.round((0.05 + RNG.chanceFromSeed(seed, "dirtCoverage") * 0.16) * 100);
 
       const settlementCoverage = hasSettlement
         ? Math.round((0.03 + RNG.chanceFromSeed(seed, "settlementCoverage") * 0.08) * 100)
