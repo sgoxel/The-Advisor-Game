@@ -155,27 +155,41 @@ window.Game = window.Game || {};
     const rng = RNG.createSeededRandom(`${seed}|settlements`);
     const targetCount = chooseSettlementCount(seed);
     const settlements = [];
-    const margin = 3;
-    const spacing = Math.max(4, Math.round(Math.min(world.rows, world.cols) * 0.08));
+    const minSettlementSize = 5;
+    const maxSettlementSize = 8;
+    const margin = 4;
+    const spacing = Math.max(5, Math.round(Math.min(world.rows, world.cols) * 0.10));
+
+    function clampSettlementArea(area) {
+      const width = Utils.clamp(area.width, minSettlementSize, maxSettlementSize);
+      const height = Utils.clamp(area.height, minSettlementSize, maxSettlementSize);
+      return {
+        id: area.id,
+        width,
+        height,
+        top: Utils.clamp(area.top, 0, Math.max(0, world.rows - height)),
+        left: Utils.clamp(area.left, 0, Math.max(0, world.cols - width))
+      };
+    }
 
     let attempts = 0;
-    while (settlements.length < targetCount && attempts < 500) {
+    while (settlements.length < targetCount && attempts < 700) {
       attempts += 1;
-      const width = 2 + Math.floor(rng() * 3);
-      const height = 2 + Math.floor(rng() * 3);
+      const width = minSettlementSize + Math.floor(rng() * (maxSettlementSize - minSettlementSize + 1));
+      const height = minSettlementSize + Math.floor(rng() * (maxSettlementSize - minSettlementSize + 1));
       const top = Math.floor(rng() * Math.max(1, world.rows - height - margin * 2)) + margin;
       const left = Math.floor(rng() * Math.max(1, world.cols - width - margin * 2)) + margin;
-      const candidate = { id: settlements.length + 1, top, left, width, height };
+      const candidate = clampSettlementArea({ id: settlements.length + 1, top, left, width, height });
 
       if (settlements.some((existing) => rectsAreTooClose(existing, candidate, spacing))) continue;
 
-      markRectangle(grid, reserved, top, left, height, width, candidate.id);
+      markRectangle(grid, reserved, candidate.top, candidate.left, candidate.height, candidate.width, candidate.id);
       settlements.push(candidate);
     }
 
     if (settlements.length < 2) {
-      const fallbackA = { id: 1, top: 3, left: 3, width: 3, height: 3 };
-      const fallbackB = { id: 2, top: Math.max(3, world.rows - 6), left: Math.max(3, world.cols - 6), width: 3, height: 3 };
+      const fallbackA = clampSettlementArea({ id: 1, top: 4, left: 4, width: 5, height: 5 });
+      const fallbackB = clampSettlementArea({ id: 2, top: Math.max(4, world.rows - 9), left: Math.max(4, world.cols - 9), width: 5, height: 5 });
       for (const area of [fallbackA, fallbackB]) {
         if (!settlements.some((s) => s.id === area.id)) {
           markRectangle(grid, reserved, area.top, area.left, area.height, area.width, area.id);
@@ -314,37 +328,71 @@ window.Game = window.Game || {};
     return changed;
   }
 
-  function addLakes(grid, reserved, seed, targetCount) {
-    const world = State.world;
-    const rng = RNG.createSeededRandom(`${seed}|lakes`);
-    let blocked = 0;
-    let attempts = 0;
-    while (blocked < targetCount && attempts < 120) {
-      attempts += 1;
-      const centerRow = 2 + rng() * Math.max(1, world.rows - 4);
-      const centerCol = 2 + rng() * Math.max(1, world.cols - 4);
-      const radius = 1.6 + rng() * Math.max(1.8, Math.min(world.rows, world.cols) * 0.06);
-      blocked += applyCircularBlob(grid, reserved, centerRow, centerCol, radius, (localGrid, row, col) => paintLakeTile(localGrid, row, col));
+  function createClusterAnchors(seed, reserved, count, padding) {
+    const rankedCells = scoreFreeCells(`${seed}|clusterAnchors`, reserved);
+    const anchors = [];
+    const minDistance = Math.max(4, padding || 0);
+
+    for (const cell of rankedCells) {
+      if (anchors.length >= count) break;
+      const tooClose = anchors.some((anchor) => Math.hypot(anchor.row - cell.row, anchor.col - cell.col) < minDistance);
+      if (tooClose) continue;
+      anchors.push(cell);
     }
-    return blocked;
+
+    return anchors;
+  }
+
+  function fillClusteredAreas(grid, reserved, seed, targetCount, options) {
+    if (targetCount <= 0) return 0;
+    const world = State.world;
+    const rng = RNG.createSeededRandom(`${seed}|${options.clusterKey}`);
+    const anchors = createClusterAnchors(`${seed}|${options.clusterKey}`, reserved, options.clusterCount || 3, options.spacing || 6);
+    let changed = 0;
+    let attempts = 0;
+
+    while (anchors.length && changed < targetCount && attempts < (options.maxAttempts || 220)) {
+      attempts += 1;
+      const anchor = anchors[attempts % anchors.length];
+      const wobbleRow = (rng() - 0.5) * (options.wobble || 4);
+      const wobbleCol = (rng() - 0.5) * (options.wobble || 4);
+      const centerRow = Utils.clamp(anchor.row + wobbleRow, 1, world.rows - 2);
+      const centerCol = Utils.clamp(anchor.col + wobbleCol, 1, world.cols - 2);
+      const radius = options.minRadius + rng() * (options.maxRadius - options.minRadius);
+
+      changed += applyCircularBlob(grid, reserved, centerRow, centerCol, radius, options.painter);
+    }
+
+    return changed;
+  }
+
+  function addLakes(grid, reserved, seed, targetCount) {
+    return fillClusteredAreas(grid, reserved, seed, targetCount, {
+      clusterKey: "lakes",
+      clusterCount: 1,
+      spacing: Math.max(8, Math.round(Math.min(State.world.rows, State.world.cols) * 0.12)),
+      wobble: 3,
+      minRadius: 2.2,
+      maxRadius: Math.max(3.4, Math.min(State.world.rows, State.world.cols) * 0.075),
+      maxAttempts: 120,
+      painter: (localGrid, row, col) => paintLakeTile(localGrid, row, col)
+    });
   }
 
   function addMountains(grid, reserved, seed, targetCount) {
-    const world = State.world;
-    const rng = RNG.createSeededRandom(`${seed}|mountains`);
-    let blocked = 0;
-    let attempts = 0;
-    while (blocked < targetCount && attempts < 140) {
-      attempts += 1;
-      const centerRow = 2 + rng() * Math.max(1, world.rows - 4);
-      const centerCol = 2 + rng() * Math.max(1, world.cols - 4);
-      const radius = 1.5 + rng() * Math.max(2.0, Math.min(world.rows, world.cols) * 0.055);
-      blocked += applyCircularBlob(grid, reserved, centerRow, centerCol, radius, (localGrid, row, col, dist) => {
-        const normalized = Math.max(0, 1 - dist / Math.max(radius, 0.001));
+    return fillClusteredAreas(grid, reserved, seed, targetCount, {
+      clusterKey: "mountains",
+      clusterCount: 2,
+      spacing: Math.max(7, Math.round(Math.min(State.world.rows, State.world.cols) * 0.10)),
+      wobble: 5,
+      minRadius: 2.1,
+      maxRadius: Math.max(3.2, Math.min(State.world.rows, State.world.cols) * 0.07),
+      maxAttempts: 160,
+      painter: (localGrid, row, col, dist) => {
+        const normalized = Math.max(0, 1 - dist / Math.max(1, 3.2));
         return paintMountainTile(localGrid, row, col, 2.2 + normalized * 1.6);
-      });
-    }
-    return blocked;
+      }
+    });
   }
 
   function addRivers(grid, reserved, seed, targetCount) {
@@ -379,36 +427,142 @@ window.Game = window.Game || {};
   }
 
   function addForests(grid, reserved, seed, targetCount) {
-    const rankedCells = scoreFreeCells(`${seed}|forests`, reserved);
+    return fillClusteredAreas(grid, reserved, seed, targetCount, {
+      clusterKey: "forests",
+      clusterCount: Math.max(2, Math.min(5, Math.round(Math.min(State.world.rows, State.world.cols) / 18))),
+      spacing: Math.max(6, Math.round(Math.min(State.world.rows, State.world.cols) * 0.08)),
+      wobble: 6,
+      minRadius: 2.0,
+      maxRadius: Math.max(3.0, Math.min(State.world.rows, State.world.cols) * 0.065),
+      maxAttempts: 260,
+      painter: (localGrid, row, col) => paintForestTile(localGrid, row, col)
+    });
+  }
+
+  function countBlockingTiles(grid) {
     let blocked = 0;
-    for (const cell of rankedCells) {
-      if (blocked >= targetCount) break;
-      const tile = tileAt(grid, cell.row, cell.col);
-      if (!tile || tileIsBlocking(tile)) continue;
-      if (paintForestTile(grid, cell.row, cell.col)) blocked += 1;
+    for (let row = 0; row < grid.length; row++) {
+      for (let col = 0; col < grid[row].length; col++) {
+        if (tileIsBlocking(grid[row][col])) blocked += 1;
+      }
     }
     return blocked;
+  }
+
+  function countBlockingNeighbors(grid, row, col) {
+    let count = 0;
+    for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
+      for (let colOffset = -1; colOffset <= 1; colOffset++) {
+        if (rowOffset === 0 && colOffset === 0) continue;
+        const neighbor = tileAt(grid, row + rowOffset, col + colOffset);
+        if (tileIsBlocking(neighbor)) count += 1;
+      }
+    }
+    return count;
+  }
+
+  function addFallbackBlockingTiles(grid, reserved, seed, targetCount) {
+    if (targetCount <= 0) return 0;
+
+    const candidates = [];
+    for (let row = 0; row < grid.length; row++) {
+      for (let col = 0; col < grid[row].length; col++) {
+        if (isReserved(reserved, row, col)) continue;
+        const tile = tileAt(grid, row, col);
+        if (!tile || tileIsBlocking(tile)) continue;
+        const neighborCount = countBlockingNeighbors(grid, row, col);
+        const noise = RNG.hashNoise(seed, row, col, "blockingFallback");
+        candidates.push({
+          row,
+          col,
+          neighborCount,
+          score: neighborCount * 10 + noise
+        });
+      }
+    }
+
+    candidates.sort((a, b) => {
+      if (b.neighborCount !== a.neighborCount) return b.neighborCount - a.neighborCount;
+      return b.score - a.score;
+    });
+
+    let changed = 0;
+    for (const cell of candidates) {
+      if (changed >= targetCount) break;
+      const tile = tileAt(grid, cell.row, cell.col);
+      if (!tile || tileIsBlocking(tile)) continue;
+      const currentNeighbors = countBlockingNeighbors(grid, cell.row, cell.col);
+      if (changed > 0 && currentNeighbors === 0) continue;
+      if (paintForestTile(grid, cell.row, cell.col)) changed += 1;
+    }
+
+    return changed;
+  }
+
+  function ensureBlockedCoverage(grid, reserved, seed, minPercent, maxPercent) {
+    const total = Math.max(1, grid.length * (grid[0] ? grid[0].length : 0));
+    const minBlockedCount = Math.ceil(total * minPercent / 100);
+    const maxBlockedCount = Math.floor(total * maxPercent / 100);
+    let blockedCount = countBlockingTiles(grid);
+
+    if (blockedCount >= minBlockedCount) {
+      return blockedCount;
+    }
+
+    let remaining = Math.max(0, Math.min(maxBlockedCount, total) - blockedCount);
+    if (remaining <= 0) {
+      return blockedCount;
+    }
+
+    const clusteredTarget = Math.min(remaining, minBlockedCount - blockedCount);
+    if (clusteredTarget > 0) {
+      blockedCount += addForests(grid, reserved, `${seed}|blockedCoverageBoost`, clusteredTarget);
+      remaining = Math.max(0, Math.min(maxBlockedCount, total) - blockedCount);
+    }
+
+    if (blockedCount < minBlockedCount && remaining > 0) {
+      blockedCount += addFallbackBlockingTiles(grid, reserved, `${seed}|blockedCoverageFallback`, Math.min(remaining, minBlockedCount - blockedCount));
+    }
+
+    return blockedCount;
   }
 
   function addBaseSurface(grid, params, seed) {
     const world = State.world;
     const totalTiles = world.rows * world.cols;
     const targetDirt = Math.floor(totalTiles * (params.targetDirtCoverage / 100));
-    let dirtAssigned = 0;
+    const dirtSeed = `${seed}|dirtClusters`;
+    const dirtAnchors = createClusterAnchors(dirtSeed, makeMask(world.rows, world.cols, false), Math.max(3, Math.min(7, Math.round(Math.min(world.rows, world.cols) / 16))), Math.max(5, Math.round(Math.min(world.rows, world.cols) * 0.07)));
 
     for (let row = 0; row < world.rows; row++) {
       for (let col = 0; col < world.cols; col++) {
         const tile = grid[row][col];
         if (tile.type === "road" || tile.type === "settlement") continue;
         if (tile.type === "forest" || tile.type === "mountain" || tile.type === "lake" || tile.type === "river") continue;
-        const n = RNG.hashNoise(seed, row, col, "baseSurface");
-        if (dirtAssigned < targetDirt && n > 0.82) {
-          tile.type = "dirt";
-          dirtAssigned += 1;
-        } else {
-          tile.type = "grass";
-        }
+        tile.type = "grass";
       }
+    }
+
+    const candidates = [];
+    for (let row = 0; row < world.rows; row++) {
+      for (let col = 0; col < world.cols; col++) {
+        const tile = grid[row][col];
+        if (!tile || tile.type !== "grass") continue;
+        let clusterInfluence = 0;
+        for (const anchor of dirtAnchors) {
+          const distance = Math.hypot(anchor.row - row, anchor.col - col);
+          clusterInfluence = Math.max(clusterInfluence, Math.max(0, 1 - distance / Math.max(3.5, Math.min(world.rows, world.cols) * 0.09)));
+        }
+        const noise = RNG.hashNoise(seed, row, col, "baseSurface");
+        const score = clusterInfluence * 0.82 + noise * 0.18;
+        candidates.push({ row, col, score });
+      }
+    }
+
+    candidates.sort((a, b) => b.score - a.score);
+    for (let i = 0; i < Math.min(targetDirt, candidates.length); i++) {
+      const cell = candidates[i];
+      grid[cell.row][cell.col].type = "dirt";
     }
   }
 
@@ -481,6 +635,7 @@ window.Game = window.Game || {};
     blockedCount += addMountains(grid, reserved, seed, mountainTarget);
     blockedCount += addRivers(grid, reserved, seed, riverTarget);
     blockedCount += addForests(grid, reserved, seed, Math.max(0, blockerTargetCount - blockedCount));
+    blockedCount = ensureBlockedCoverage(grid, reserved, seed, 30, 60);
 
     addBaseSurface(grid, params, seed);
 

@@ -83,6 +83,12 @@ window.Game = window.Game || {};
       settingsBtn: null,
       applySettingsBtn: null,
       cancelSettingsBtn: null,
+      mainMenuBtn: null,
+      mainMenuDropdown: null,
+      menuGithubBtn: null,
+      menuSaveBtn: null,
+      menuLoadBtn: null,
+      menuExportMapDataBtn: null,
 
       logModal: null,
       logBtn: null,

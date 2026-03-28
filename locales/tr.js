@@ -20,9 +20,9 @@ window.Game.Locales.tr = {
     "language": "Dil"
   },
   "menu": {
-    "githubPage": "Github Page",
-    "save": "Save",
-    "load": "Load"
+    "githubPage": "Github Sayfası",
+    "save": "Dışa Aktar",
+    "load": "Yükle"
   },
   "stats": {
     "gold": "Altın",
@@ -118,6 +118,8 @@ window.Game.Locales.tr = {
     "unknown": "Bilinmeyen hata",
     "noStack": "Stack bilgisi yok.",
     "resourceLoadError": "Kaynak yükleme hatası",
+    "exportCompleted": "Dışa aktarma tamamlandı. Dosya indirildi: {{filename}}",
+    "exportFailed": "Dışa aktarma başarısız oldu. Görüntü oluşturulamadı.",
     "tag": "Etiket"
   },
   "paramValues": {

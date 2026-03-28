@@ -74,7 +74,6 @@
     "highlightStrength": "Highlight Strength",
     "shadowLength": "Shadow Length",
     "note": "These fields are derived only from the SEED and map size. Manual editing is disabled. When the same SEED and dimensions are entered, the application regenerates the same topology and terrain distribution.",
-    "note": "These fields are derived only from the SEED and map size. Manual editing is disabled. When the same SEED and dimensions are entered, the application regenerates the same topology and terrain distribution.",
     "groups": {
       "topology": "Topology",
       "infrastructure": "Infrastructure and Land Use",
@@ -109,7 +108,11 @@
     "unknown": "Unknown error",
     "noStack": "No stack information.",
     "resourceLoadError": "Resource loading error",
-    "tag": "Tag"
+    "tag": "Tag",
+    "exportCompleted": "Export completed. File downloaded: {{filename}}",
+    "exportFailed": "Export failed. The image could not be created.",
+    "mapDataExportCompleted": "Map data export completed. File downloaded: {{filename}}",
+    "mapDataExportFailed": "Map data export failed. The TXT file could not be created."
   },
   "paramValues": {
     "exists": "Yes",
@@ -118,5 +121,11 @@
   },
   "webgl": {
     "notSupported": "WebGL could not be initialized. The browser or GPU may not support this feature."
+  },
+  "menu": {
+    "githubPage": "Github Page",
+    "save": "Export",
+    "load": "Load",
+    "exportMapData": "Export Map Data"
   }
 }

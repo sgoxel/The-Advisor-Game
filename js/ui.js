@@ -3,13 +3,262 @@ window.Game = window.Game || {};
 
 (function () {
   const State = window.Game.State;
+
+  function buildFullMapExportCanvas() {
+    const world = State.world;
+    const render = State.render;
+    const renderer = window.Game && window.Game.Renderer;
+
+    if (renderer && typeof renderer.renderWorld === "function") {
+      renderer.renderWorld(true);
+    }
+
+    const sourceCanvas = render && render.worldBackgroundCanvas;
+    if (!sourceCanvas) return null;
+
+    const baseCanvas = document.createElement("canvas");
+    baseCanvas.width = sourceCanvas.width;
+    baseCanvas.height = sourceCanvas.height;
+
+    const baseCtx = baseCanvas.getContext("2d", { alpha: false });
+    baseCtx.drawImage(sourceCanvas, 0, 0);
+
+    const cellWidth = baseCanvas.width / Math.max(1, world.cols || 1);
+    const cellHeight = baseCanvas.height / Math.max(1, world.rows || 1);
+
+    if (State.camera && State.camera.showGrid) {
+      baseCtx.save();
+      baseCtx.strokeStyle = "rgba(31, 43, 54, 0.45)";
+      baseCtx.lineWidth = 1;
+      baseCtx.beginPath();
+      for (let col = 0; col <= world.cols; col++) {
+        const x = Math.round(col * cellWidth) + 0.5;
+        baseCtx.moveTo(x, 0);
+        baseCtx.lineTo(x, baseCanvas.height);
+      }
+      for (let row = 0; row <= world.rows; row++) {
+        const y = Math.round(row * cellHeight) + 0.5;
+        baseCtx.moveTo(0, y);
+        baseCtx.lineTo(baseCanvas.width, y);
+      }
+      baseCtx.stroke();
+      baseCtx.restore();
+    }
+
+    const exportCanvas = document.createElement("canvas");
+    exportCanvas.width = baseCanvas.height;
+    exportCanvas.height = baseCanvas.width;
+
+    const ctx = exportCanvas.getContext("2d", { alpha: false });
+    ctx.translate(exportCanvas.width, 0);
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(baseCanvas, 0, 0);
+
+    return exportCanvas;
+  }
+
+  function buildSafeBaseFilename() {
+    const timestamp = new Date().toISOString().replace(/[.:]/g, "-");
+    const seed = (State.world && State.world.seed ? String(State.world.seed) : "map").replace(/[^a-z0-9_-]+/gi, "_");
+    return `${seed || "map"}-${timestamp}`;
+  }
+
+  function triggerDownload(url, filename, logKey) {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    if (typeof url === "string" && url.startsWith("blob:")) {
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+    addLog(I18n && I18n.t ? I18n.t(logKey || "logs.exportCompleted", { filename }) : `Export completed: ${filename}`);
+  }
+
+
+  const STEGO_MAGIC = "SMSD";
+  const STEGO_VERSION = 1;
+
+  function encodeUtf8(value) {
+    if (typeof TextEncoder === "function") {
+      return new TextEncoder().encode(String(value || ""));
+    }
+    const input = String(value || "");
+    const bytes = new Uint8Array(input.length);
+    for (let i = 0; i < input.length; i++) bytes[i] = input.charCodeAt(i) & 255;
+    return bytes;
+  }
+
+  function buildStegoPayloadBytes(payload) {
+    const jsonBytes = encodeUtf8(JSON.stringify(payload));
+    const header = new Uint8Array(12);
+    header[0] = STEGO_MAGIC.charCodeAt(0);
+    header[1] = STEGO_MAGIC.charCodeAt(1);
+    header[2] = STEGO_MAGIC.charCodeAt(2);
+    header[3] = STEGO_MAGIC.charCodeAt(3);
+    header[4] = (STEGO_VERSION >>> 24) & 255;
+    header[5] = (STEGO_VERSION >>> 16) & 255;
+    header[6] = (STEGO_VERSION >>> 8) & 255;
+    header[7] = STEGO_VERSION & 255;
+    const length = jsonBytes.length >>> 0;
+    header[8] = (length >>> 24) & 255;
+    header[9] = (length >>> 16) & 255;
+    header[10] = (length >>> 8) & 255;
+    header[11] = length & 255;
+
+    const payloadBytes = new Uint8Array(header.length + jsonBytes.length);
+    payloadBytes.set(header, 0);
+    payloadBytes.set(jsonBytes, header.length);
+    return payloadBytes;
+  }
+
+  function embedMapDataInCanvas(canvas, payload) {
+    if (!canvas || !payload) return canvas;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) throw new Error("Canvas 2D context is not available.");
+
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const pixels = imageData.data;
+    const payloadBytes = buildStegoPayloadBytes(payload);
+    const requiredBits = payloadBytes.length * 8;
+    const capacityBits = Math.floor(pixels.length / 4) * 3;
+    if (requiredBits > capacityBits) {
+      throw new Error(`Map data is too large to embed in the PNG. Required ${requiredBits} bits, capacity ${capacityBits} bits.`);
+    }
+
+    let bitIndex = 0;
+    for (let i = 0; i < pixels.length && bitIndex < requiredBits; i += 4) {
+      for (let channel = 0; channel < 3 && bitIndex < requiredBits; channel++) {
+        const byteIndex = bitIndex >> 3;
+        const bitOffset = 7 - (bitIndex & 7);
+        const bit = (payloadBytes[byteIndex] >> bitOffset) & 1;
+        pixels[i + channel] = (pixels[i + channel] & 0xfe) | bit;
+        bitIndex += 1;
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    return canvas;
+  }
+
+  function buildMapDataExportObject(options = {}) {
+    const world = State.world || {};
+    const camera = State.camera || {};
+    const exportCanvas = buildFullMapExportCanvas();
+    if (!exportCanvas) return null;
+
+    const payload = {
+      format: "simsoft-map-data",
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      seed: world.seed || "",
+      map: {
+        cols: world.cols || 0,
+        rows: world.rows || 0,
+        tileWidth: world.tileWidth || 0,
+        tileHeight: world.tileHeight || 0
+      },
+      camera: {
+        pitchAngle: camera.pitchAngle,
+        depthStrength: camera.depthStrength,
+        blendPixelSize: camera.blendPixelSize,
+        blendStrength: camera.blendStrength,
+        noiseGridDivisions: camera.noiseGridDivisions,
+        showGrid: !!camera.showGrid,
+        reliefEnabled: !!camera.reliefEnabled,
+        sunAzimuth: camera.sunAzimuth,
+        sunElevation: camera.sunElevation,
+        shadowStrength: camera.shadowStrength,
+        highlightStrength: camera.highlightStrength,
+        shadowLength: camera.shadowLength,
+        zoom: camera.zoom
+      },
+      player: world.player ? {
+        row: world.player.row,
+        col: world.player.col,
+        direction: world.player.direction
+      } : null,
+      params: world.params || null,
+      tiles: (world.terrain || []).flatMap((rowTiles, y) =>
+        rowTiles.map((tile, x) => ({
+          x,
+          y,
+          type: tile.type,
+          elevation: Number(tile.elevation || 0),
+          tags: tile.tags ? Array.from(tile.tags).sort() : []
+        }))
+      )
+    };
+
+    if (!options.excludeMapImage) {
+      payload.mapImage = {
+        mimeType: "image/png",
+        width: exportCanvas.width,
+        height: exportCanvas.height,
+        dataUrl: exportCanvas.toDataURL("image/png")
+      };
+    }
+
+    return payload;
+  }
+
+  function exportCurrentView() {
+    const filename = `${buildSafeBaseFilename()}.png`;
+
+    try {
+      const exportCanvas = buildFullMapExportCanvas();
+      if (!exportCanvas) {
+        addLog(I18n && I18n.t ? I18n.t("logs.exportFailed") : "Export failed.", "Full map canvas not available.");
+        return;
+      }
+
+      const payload = buildMapDataExportObject({ excludeMapImage: true });
+      embedMapDataInCanvas(exportCanvas, payload);
+
+      if (exportCanvas.toBlob) {
+        exportCanvas.toBlob((blob) => {
+          if (!blob) {
+            addLog(I18n && I18n.t ? I18n.t("logs.exportFailed") : "Export failed.");
+            return;
+          }
+          triggerDownload(URL.createObjectURL(blob), filename, "logs.exportCompleted");
+        }, "image/png");
+      } else {
+        triggerDownload(exportCanvas.toDataURL("image/png"), filename, "logs.exportCompleted");
+      }
+    } catch (error) {
+      addLog(I18n && I18n.t ? I18n.t("logs.exportFailed") : "Export failed.", error && error.message ? error.message : String(error));
+    }
+  }
+
+  function exportMapData() {
+    const filename = `${buildSafeBaseFilename()}-map-data.txt`;
+
+    try {
+      const payload = buildMapDataExportObject();
+      if (!payload) {
+        addLog(I18n && I18n.t ? I18n.t("logs.mapDataExportFailed") : "Map data export failed.", "Full map canvas not available.");
+        return;
+      }
+
+      const jsonText = JSON.stringify(payload, null, 2);
+      const blob = new Blob([jsonText], { type: "text/plain;charset=utf-8" });
+      triggerDownload(URL.createObjectURL(blob), filename, "logs.mapDataExportCompleted");
+    } catch (error) {
+      addLog(
+        I18n && I18n.t ? I18n.t("logs.mapDataExportFailed") : "Map data export failed.",
+        error && error.message ? error.message : String(error)
+      );
+    }
+  }
   const I18n = window.Game.I18n;
 
   function cacheDom() {
     const dom = State.dom;
 
     dom.canvas = document.getElementById("gameCanvas");
-    dom.gl = dom.canvas.getContext("webgl", { antialias: true, alpha: false });
+    dom.gl = dom.canvas.getContext("webgl", { antialias: true, alpha: false, preserveDrawingBuffer: true });
     if (!dom.gl) throw new Error(I18n.t("webgl.notSupported"));
 
     dom.minimap = document.getElementById("minimap");
@@ -21,6 +270,8 @@ window.Game = window.Game || {};
     dom.menuGithubBtn = document.getElementById("menuGithubBtn");
     dom.menuSaveBtn = document.getElementById("menuSaveBtn");
     dom.menuLoadBtn = document.getElementById("menuLoadBtn");
+    dom.menuExportMapDataBtn = document.getElementById("menuExportMapDataBtn");
+    dom.localMapFolderInput = document.getElementById("localMapFolderInput");
     dom.settingsBtn = document.getElementById("settingsBtn");
     dom.applySettingsBtn = document.getElementById("applySettingsBtn");
     dom.cancelSettingsBtn = document.getElementById("cancelSettingsBtn");
@@ -403,13 +654,23 @@ window.Game = window.Game || {};
       closeMainMenu();
     });
     dom.menuSaveBtn.addEventListener("click", () => {
-      addLog("Save action selected. Function not implemented yet.");
+      exportCurrentView();
       closeMainMenu();
     });
     dom.menuLoadBtn.addEventListener("click", () => {
-      addLog("Load action selected. Function not implemented yet.");
+      if (window.Game.App && typeof window.Game.App.promptLocalMapFolderSelection === "function") {
+        window.Game.App.promptLocalMapFolderSelection();
+      } else {
+        addLog("Load action selected, but local folder loading is not ready.");
+      }
       closeMainMenu();
     });
+    if (dom.menuExportMapDataBtn) {
+      dom.menuExportMapDataBtn.addEventListener("click", () => {
+        exportMapData();
+        closeMainMenu();
+      });
+    }
 
     const characterPanel = document.querySelector('.character-panel');
     const characterHeader = document.querySelector('.character-panel .panel-header');
@@ -463,6 +724,14 @@ window.Game = window.Game || {};
     dom.settingsModal.addEventListener("click", (event) => { if (event.target === dom.settingsModal) closeSettingsModal(); });
     dom.logModal.addEventListener("click", (event) => { if (event.target === dom.logModal) closeLogModal(); });
     dom.applySettingsBtn.addEventListener("click", onApplySettings);
+    if (dom.localMapFolderInput) {
+      dom.localMapFolderInput.addEventListener("change", async (event) => {
+        const files = event.target && event.target.files ? event.target.files : [];
+        if (window.Game.App && typeof window.Game.App.registerLocalMapFiles === "function") {
+          await window.Game.App.registerLocalMapFiles(files);
+        }
+      });
+    }
     bindResponsivePanels();
   }
 

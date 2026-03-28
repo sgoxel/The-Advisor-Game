@@ -21,7 +21,7 @@ window.Game.Locales.en = {
   },
   "menu": {
     "githubPage": "Github Page",
-    "save": "Save",
+    "save": "Export",
     "load": "Load"
   },
   "stats": {
@@ -118,6 +118,8 @@ window.Game.Locales.en = {
     "unknown": "Unknown error",
     "noStack": "No stack information.",
     "resourceLoadError": "Resource loading error",
+    "exportCompleted": "Export completed. File downloaded: {{filename}}",
+    "exportFailed": "Export failed. The image could not be created.",
     "tag": "Tag"
   },
   "paramValues": {

@@ -74,7 +74,6 @@
     "highlightStrength": "Aydınlık Kenar Şiddeti",
     "shadowLength": "Gölge Uzunluğu",
     "note": "Bu alanlar yalnızca SEED ve harita boyutundan türetilir. Manuel düzenleme kapalıdır. Aynı SEED ve aynı boyutlar girildiğinde uygulama aynı topoloji ve arazi dağılımını tekrar üretir.",
-    "note": "Bu alanlar yalnızca SEED ve harita boyutundan türetilir. Manuel düzenleme kapalıdır. Aynı SEED ve aynı boyutlar girildiğinde uygulama aynı topoloji ve arazi dağılımını tekrar üretir.",
     "groups": {
       "topology": "Topoloji",
       "infrastructure": "Altyapı ve Arazi Kullanımı",
@@ -109,7 +108,11 @@
     "unknown": "Bilinmeyen hata",
     "noStack": "Stack bilgisi yok.",
     "resourceLoadError": "Kaynak yükleme hatası",
-    "tag": "Etiket"
+    "tag": "Etiket",
+    "exportCompleted": "Dışa aktarma tamamlandı. Dosya indirildi: {{filename}}",
+    "exportFailed": "Dışa aktarma başarısız oldu. Görüntü oluşturulamadı.",
+    "mapDataExportCompleted": "Harita verisi dışa aktarma tamamlandı. Dosya indirildi: {{filename}}",
+    "mapDataExportFailed": "Harita verisi dışa aktarma başarısız oldu. TXT dosyası oluşturulamadı."
   },
   "paramValues": {
     "exists": "Var",
@@ -118,5 +121,11 @@
   },
   "webgl": {
     "notSupported": "WebGL başlatılamadı. Tarayıcı veya GPU bu özelliği desteklemiyor olabilir."
+  },
+  "menu": {
+    "githubPage": "Github Sayfası",
+    "save": "Dışa Aktar",
+    "load": "Yükle",
+    "exportMapData": "Harita Verisini Dışa Aktar"
   }
 }

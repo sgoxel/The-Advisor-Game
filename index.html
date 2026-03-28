@@ -8,6 +8,7 @@
 </head>
 <body>
   <div id="app">
+    <input id="localMapFolderInput" type="file" webkitdirectory directory multiple class="hidden" hidden aria-hidden="true" tabindex="-1" />
     <!-- Settings Modal -->
     <div id="settingsModal" class="modal-overlay hidden">
       <div class="modal-card">
@@ -203,6 +204,7 @@
             <button class="dropdown-item" id="menuGithubBtn" type="button" role="menuitem" data-i18n="menu.githubPage">Github Page</button>
             <button class="dropdown-item" id="menuSaveBtn" type="button" role="menuitem" data-i18n="menu.save">Save</button>
             <button class="dropdown-item" id="menuLoadBtn" type="button" role="menuitem" data-i18n="menu.load">Load</button>
+            <button class="dropdown-item" id="menuExportMapDataBtn" type="button" role="menuitem" data-i18n="menu.exportMapData">Export Map Data</button>
           </div>
         </div>
         <button class="menu-btn" id="settingsBtn" type="button" data-i18n="header.settings">Settings</button>
