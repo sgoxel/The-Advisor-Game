@@ -165,6 +165,57 @@
             </div>
           </div>
 
+          <div class="params-grid">
+            <div class="params-group">
+              <div class="params-title">Texture Source</div>
+
+              <label class="form-field">
+                <span>Texture Directory</span>
+                <input id="textureDirectoryInput" type="text" readonly />
+              </label>
+
+              <label class="form-field">
+                <span>Grass Filename</span>
+                <input id="textureGrassInput" type="text" readonly />
+              </label>
+
+              <label class="form-field">
+                <span>Dirt Filename</span>
+                <input id="textureDirtInput" type="text" readonly />
+              </label>
+
+              <label class="form-field">
+                <span>Forest Filename</span>
+                <input id="textureForestInput" type="text" readonly />
+              </label>
+
+              <label class="form-field">
+                <span>Lake Filename</span>
+                <input id="textureLakeInput" type="text" readonly />
+              </label>
+
+              <label class="form-field">
+                <span>River Filename</span>
+                <input id="textureRiverInput" type="text" readonly />
+              </label>
+
+              <label class="form-field">
+                <span>Road Filename</span>
+                <input id="textureRoadInput" type="text" readonly />
+              </label>
+
+              <label class="form-field">
+                <span>Mountain Filename</span>
+                <input id="textureMountainInput" type="text" readonly />
+              </label>
+
+              <label class="form-field">
+                <span>Settlement Filename</span>
+                <input id="textureSettlementInput" type="text" readonly />
+              </label>
+            </div>
+          </div>
+
           <div class="modal-note" data-i18n="settings.note">
             These fields are derived only from the SEED and map size.
             Manual editing is disabled. When the same SEED and dimensions
@@ -204,6 +255,7 @@
             <button class="dropdown-item" id="menuGithubBtn" type="button" role="menuitem" data-i18n="menu.githubPage">Github Page</button>
             <button class="dropdown-item" id="menuSaveBtn" type="button" role="menuitem" data-i18n="menu.save">Export Map Image</button>
             <button class="dropdown-item" id="menuExportMapDataBtn" type="button" role="menuitem" data-i18n="menu.exportMapData">Export Map Data</button>
+            <button class="dropdown-item" id="menuExportMasksBtn" type="button" role="menuitem" data-i18n="menu.exportMasks">Export Tile Masks</button>
             <button class="dropdown-item" id="menuLoadBtn" type="button" role="menuitem" data-i18n="menu.load">Load Map</button>
           </div>
         </div>
@@ -338,6 +390,7 @@
 
   <!-- Script order is important -->
   <script src="js/config.js"></script>
+  <script src="js/embedded_textures.js"></script>
   <script src="js/state.js"></script>
   <script src="js/utils.js"></script>
   <script src="js/rng.js"></script>

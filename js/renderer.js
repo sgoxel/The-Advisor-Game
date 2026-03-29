@@ -108,8 +108,8 @@ window.Game = window.Game || {};
     gl.bindTexture(gl.TEXTURE_2D, render.backgroundTexture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -1316,7 +1316,11 @@ window.Game = window.Game || {};
       { dr: -1, dc: 0 },
       { dr: 1, dc: 0 },
       { dr: 0, dc: -1 },
-      { dr: 0, dc: 1 }
+      { dr: 0, dc: 1 },
+      { dr: -1, dc: -1 },
+      { dr: -1, dc: 1 },
+      { dr: 1, dc: -1 },
+      { dr: 1, dc: 1 }
     ];
     return directions.filter((dir) => shouldRenderRoadConnection(row, col, dir.dr, dir.dc));
   }
@@ -1554,20 +1558,292 @@ window.Game = window.Game || {};
     gl.drawArrays(gl.LINE_LOOP, 0, outlineVertices.length / 3);
   }
 
+  function buildTextureUrl(fileName) {
+    const directory = String(Config.TEXTURE_DIRECTORY || "textures").replace(/\\+$/g, "").replace(/\/+$/g, "");
+    return `${directory}/${fileName}`;
+  }
+
+  function detectImageMimeType(buffer) {
+    const bytes = new Uint8Array(buffer || []);
+    if (bytes.length >= 8 &&
+        bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47 &&
+        bytes[4] === 0x0D && bytes[5] === 0x0A && bytes[6] === 0x1A && bytes[7] === 0x0A) {
+      return "image/png";
+    }
+    if (bytes.length >= 3 && bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) {
+      return "image/jpeg";
+    }
+    if (bytes.length >= 12 &&
+        bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+        bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) {
+      return "image/webp";
+    }
+    return null;
+  }
+
+  function loadImageDirect(url) {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error(`Failed to decode texture image.`));
+      image.src = url;
+    });
+  }
+
+  function loadImageFromObjectUrl(objectUrl) {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(image);
+      };
+      image.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error(`Failed to decode texture image.`));
+      };
+      image.src = objectUrl;
+    });
+  }
+
+  function canUseDirectTextureLoad(url) {
+    try {
+      const resolved = new URL(url, window.location.href);
+      return resolved.protocol === "file:" || window.location.protocol === "file:";
+    } catch (error) {
+      return window.location.protocol === "file:";
+    }
+  }
+
+  function getEmbeddedTextureDataUrl(url) {
+    const fileName = String(url || '').split('/').pop();
+    const embedded = window.Game.EmbeddedTextures || {};
+    return fileName && embedded[fileName] ? embedded[fileName] : null;
+  }
+
+  function loadTextureImage(url) {
+    const embeddedDataUrl = getEmbeddedTextureDataUrl(url);
+    if (embeddedDataUrl) {
+      return loadImageDirect(embeddedDataUrl).catch((error) => {
+        throw new Error(`Failed to load embedded texture: ${url}${error && error.message ? ` (${error.message})` : ""}`);
+      });
+    }
+
+    if (canUseDirectTextureLoad(url)) {
+      return loadImageDirect(url).catch((error) => {
+        throw new Error(`Failed to load texture: ${url}${error && error.message ? ` (${error.message})` : ""}`);
+      });
+    }
+
+    return fetch(url, { cache: "no-cache" }).then((response) => {
+      if (!response.ok) {
+        throw new Error(`Failed to load texture: ${url}`);
+      }
+      return response.arrayBuffer();
+    }).then((buffer) => {
+      const mimeType = detectImageMimeType(buffer) || "application/octet-stream";
+      const blob = new Blob([buffer], { type: mimeType });
+      return loadImageFromObjectUrl(URL.createObjectURL(blob));
+    }).catch((error) => {
+      throw new Error(`Failed to load texture: ${url}${error && error.message ? ` (${error.message})` : ""}`);
+    });
+  }
+
+  async function ensureTerrainTexturesLoaded() {
+    const render = State.render;
+    if (render.textureLoadPromise) return render.textureLoadPromise;
+
+    const entries = Object.entries(Config.TEXTURE_FILES || {});
+    render.textureLoadStatus = "loading";
+    render.textureLoadPromise = Promise.all(entries.map(async ([tileType, fileName]) => {
+      const url = buildTextureUrl(fileName);
+      const image = await loadTextureImage(url);
+      render.textureImages[tileType] = image;
+      console.info(`Terrain texture loaded: ${tileType} <- ${url}`);
+    })).then(() => {
+      render.texturePatterns = {};
+      render.textureLoadStatus = "ready";
+      markDirty(true, false);
+      render.needsBackgroundRebuild = true;
+      return render.textureImages;
+    }).catch((error) => {
+      render.textureLoadStatus = "failed";
+      console.warn("Terrain textures could not be loaded.", error);
+      throw error;
+    });
+
+    return render.textureLoadPromise;
+  }
+
+  function getTileTextureImage(tileType) {
+    return State.render.textureImages ? State.render.textureImages[tileType] : null;
+  }
+
+  function getTileTexturePattern(ctx, tileType) {
+    const image = getTileTextureImage(tileType) || getTileTextureImage("grass");
+    if (!image) return null;
+    const cacheKey = `${tileType}|${canvasWidthCacheKey(ctx.canvas)}|global-rot`;
+    const cached = State.render.texturePatterns && State.render.texturePatterns[cacheKey];
+    if (cached) return cached;
+    const pattern = ctx.createPattern(image, "repeat");
+    if (!pattern) return null;
+    if (typeof pattern.setTransform === "function" && typeof DOMMatrix !== "undefined") {
+      // Rotate the pattern in world space so the sampled texture stays continuous
+      // across neighboring tiles instead of restarting tile-by-tile.
+      pattern.setTransform(new DOMMatrix().rotate(-45));
+    }
+    State.render.texturePatterns = State.render.texturePatterns || {};
+    State.render.texturePatterns[cacheKey] = pattern;
+    return pattern;
+  }
+
+  function canvasWidthCacheKey(canvas) {
+    return canvas ? `${canvas.width}x${canvas.height}` : 'nocanvas';
+  }
+
+  function fillRectWithPattern(ctx, pattern, x, y, width, height) {
+    if (!pattern) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, width, height);
+    ctx.clip();
+    ctx.fillStyle = pattern;
+    ctx.fillRect(x, y, width, height);
+    ctx.restore();
+  }
+
+  function buildTexturedBaseCanvas(canvasWidth, canvasHeight, cellWidth, cellHeight) {
+    const world = State.world;
+    const textureCanvas = document.createElement("canvas");
+    textureCanvas.width = canvasWidth;
+    textureCanvas.height = canvasHeight;
+    const textureCtx = textureCanvas.getContext("2d", { alpha: false });
+    if (textureCtx) textureCtx.imageSmoothingEnabled = false;
+    if (!textureCtx) return null;
+
+    for (let row = 0; row < world.rows; row++) {
+      for (let col = 0; col < world.cols; col++) {
+        const appearance = getVisualTileAppearance(row, col);
+        const pattern = getTileTexturePattern(textureCtx, appearance.type);
+        const x = Math.floor(col * cellWidth);
+        const y = Math.floor(row * cellHeight);
+        const width = Math.max(1, Math.ceil((col + 1) * cellWidth) - x);
+        const height = Math.max(1, Math.ceil((row + 1) * cellHeight) - y);
+
+        if (pattern) {
+          fillRectWithPattern(textureCtx, pattern, x, y, width, height);
+        } else {
+          const fallbackPattern = getTileTexturePattern(textureCtx, "grass");
+          if (fallbackPattern) {
+            fillRectWithPattern(textureCtx, fallbackPattern, x, y, width, height);
+          } else {
+            textureCtx.fillStyle = rgbToCss(appearance.color);
+            textureCtx.fillRect(x, y, width, height);
+          }
+        }
+      }
+    }
+
+    return textureCanvas;
+  }
+
+  function getTextureSample(basePixels, canvasWidth, canvasHeight, x, y) {
+    if (!basePixels || !basePixels.length) return null;
+    const sx = Math.max(0, Math.min(canvasWidth - 1, Math.round(x)));
+    const sy = Math.max(0, Math.min(canvasHeight - 1, Math.round(y)));
+    const idx = (sy * canvasWidth + sx) * 4;
+    return {
+      r: basePixels[idx],
+      g: basePixels[idx + 1],
+      b: basePixels[idx + 2]
+    };
+  }
+
+  function buildTexturedBlendColor(seed, rowFloat, colFloat, basePixels, canvasWidth, canvasHeight, sampleX, sampleY) {
+    const blendColor = buildBlendColor(seed, rowFloat, colFloat);
+    const textureColor = getTextureSample(basePixels, canvasWidth, canvasHeight, sampleX, sampleY);
+    if (!textureColor) return blendColor;
+    return mixRgb(textureColor, blendColor, Config.DEFAULT_TEXTURE_TINT_STRENGTH || 0.38);
+  }
+
   function getBackgroundResolution(cols, rows) {
-    const maxSize = 4096;
+    const render = State.render || {};
+    const gl = render.gl;
+    const gpuMax = gl ? Number(gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096) : 4096;
+    const maxSize = Math.max(2048, Math.min(gpuMax, 8192));
     const safeCols = Math.max(1, cols || 1);
     const safeRows = Math.max(1, rows || 1);
-    const pxPerCell = Math.max(1, Math.floor(Math.min(maxSize / safeCols, maxSize / safeRows, 64)));
+    const targetPxPerCell = Math.max(64, Number(Config.BACKGROUND_PIXELS_PER_CELL || 128));
+    const scale = Math.min(1, maxSize / Math.max(safeCols * targetPxPerCell, safeRows * targetPxPerCell));
+    const pxPerCell = Math.max(64, Math.floor(targetPxPerCell * scale));
     return {
       width: Math.max(1, Math.min(maxSize, safeCols * pxPerCell)),
       height: Math.max(1, Math.min(maxSize, safeRows * pxPerCell))
     };
   }
 
+  function applyPostTileNoiseCanvas(ctx, canvasWidth, canvasHeight, cellWidth, cellHeight, seed) {
+    const world = State.world;
+    const divisions = Math.max(1, Math.round(State.camera.noiseGridDivisions || 1));
+    const alpha = 0.18;
+
+    ctx.save();
+    for (let row = 0; row < world.rows; row++) {
+      const y0 = row * cellHeight;
+      const y1 = (row + 1) * cellHeight;
+      for (let col = 0; col < world.cols; col++) {
+        const x0 = col * cellWidth;
+        const x1 = (col + 1) * cellWidth;
+
+        for (let gy = 0; gy < divisions; gy++) {
+          const gy0 = y0 + (y1 - y0) * (gy / divisions);
+          const gy1 = y0 + (y1 - y0) * ((gy + 1) / divisions);
+          for (let gx = 0; gx < divisions; gx++) {
+            const gx0 = x0 + (x1 - x0) * (gx / divisions);
+            const gx1 = x0 + (x1 - x0) * ((gx + 1) / divisions);
+            const shadeNoise = RNG.hashNoise(seed, row * 991 + gy * 41, col * 977 + gx * 59, `tile-noise|${divisions}`);
+            const delta = Math.round((shadeNoise - 0.5) * 30);
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = delta >= 0 ? `rgb(${delta}, ${delta}, ${delta})` : `rgb(0, 0, 0)`;
+            if (delta >= 0) {
+              ctx.fillStyle = `rgb(${delta}, ${delta}, ${delta})`;
+            } else {
+              const d = Math.abs(delta);
+              ctx.fillStyle = `rgb(0, 0, 0)`;
+              ctx.globalAlpha = alpha * (d / 15);
+            }
+            ctx.fillRect(gx0, gy0, gx1 - gx0, gy1 - gy0);
+          }
+        }
+      }
+    }
+    ctx.restore();
+  }
+
+  function redrawElevatedTerrainOverRoadsFromCanvas(ctx, sourceCanvas, cellWidth, cellHeight) {
+    const world = State.world;
+    const roadLevel = 1;
+    if (!sourceCanvas) return;
+
+    for (let row = 0; row < world.rows; row++) {
+      for (let col = 0; col < world.cols; col++) {
+        const tile = getTile(row, col);
+        if (!tile) continue;
+        if (isRoadClearanceTile(row, col)) continue;
+        if (getRenderLevel(tile, row, col) <= roadLevel) continue;
+
+        const x = Math.floor(col * cellWidth);
+        const y = Math.floor(row * cellHeight);
+        const width = Math.max(1, Math.ceil((col + 1) * cellWidth) - x);
+        const height = Math.max(1, Math.ceil((row + 1) * cellHeight) - y);
+        ctx.drawImage(sourceCanvas, x, y, width, height, x, y, width, height);
+      }
+    }
+  }
+
   function rebuildBackgroundCanvas() {
     const world = State.world;
     const render = State.render;
+    const UI = window.Game && window.Game.UI;
     if (!world || !world.terrain || !world.terrain.length) return;
 
     render.roadAppearanceCache = new Map();
@@ -1579,43 +1855,88 @@ window.Game = window.Game || {};
     render.worldBackgroundCanvas = canvas;
 
     const ctx = canvas.getContext("2d", { alpha: false });
-    const imageData = ctx.createImageData(canvas.width, canvas.height);
-    const pixels = imageData.data;
+    if (ctx) ctx.imageSmoothingEnabled = false;
+    if (!ctx) return;
+
     const blockSize = Math.max(1, Math.round(State.camera.blendPixelSize || 4));
     const cellWidth = canvas.width / Math.max(1, world.cols);
     const cellHeight = canvas.height / Math.max(1, world.rows);
     const seed = `${world.seed}|blend|${blockSize}|${State.camera.blendStrength || 0}`;
+    const texturedBaseCanvas = buildTexturedBaseCanvas(canvas.width, canvas.height, cellWidth, cellHeight);
+    const pxPerCell = (canvas.width / Math.max(1, world.cols)).toFixed(1);
+    console.info(`Background rebuild started (${canvas.width}x${canvas.height}), px/cell=${pxPerCell}.`);
+    console.info('Terrain pipeline: textures -> blend/shadow tint -> noise -> roads.');
+    if (UI && UI.addLog) {
+      UI.addLog(`Terrain rebuild: textures base ${canvas.width}x${canvas.height}, ${pxPerCell}px/cell.`);
+      UI.addLog('Terrain post-process: blend/shadow tint + color noise + roads.');
+    }
 
+    if (texturedBaseCanvas) {
+      ctx.drawImage(texturedBaseCanvas, 0, 0);
+    } else {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    ctx.save();
+    const tintAlpha = Math.max(0.18, Math.min(0.68, Number(Config.DEFAULT_TEXTURE_TINT_STRENGTH || 0.38) * 1.15));
     for (let y = 0; y < canvas.height; y += blockSize) {
       for (let x = 0; x < canvas.width; x += blockSize) {
         const sampleX = Math.min(canvas.width - 1, x + blockSize * 0.5);
         const sampleY = Math.min(canvas.height - 1, y + blockSize * 0.5);
         const colFloat = sampleX / cellWidth;
         const rowFloat = sampleY / cellHeight;
-        const color = applyReliefLighting(
-          buildBlendColor(seed, rowFloat, colFloat),
-          computeReliefLight(seed, rowFloat, colFloat)
-        );
-        const maxX = Math.min(canvas.width, x + blockSize);
-        const maxY = Math.min(canvas.height, y + blockSize);
-        for (let py = y; py < maxY; py++) {
-          for (let px = x; px < maxX; px++) {
-            const idx = (py * canvas.width + px) * 4;
-            pixels[idx] = color.r;
-            pixels[idx + 1] = color.g;
-            pixels[idx + 2] = color.b;
-            pixels[idx + 3] = 255;
-          }
+        const blendBase = buildBlendColor(seed, rowFloat, colFloat);
+        const lightInfo = computeReliefLight(seed, rowFloat, colFloat);
+        const litColor = applyReliefLighting(blendBase, lightInfo);
+        ctx.globalAlpha = tintAlpha;
+        ctx.fillStyle = rgbToCss(litColor);
+        ctx.fillRect(x, y, Math.min(blockSize, canvas.width - x), Math.min(blockSize, canvas.height - y));
+
+        const shadowAlpha = Math.max(0, Math.min(0.22, lightInfo.shadowAmount * (State.camera.shadowStrength || 0.34) * 0.85));
+        if (shadowAlpha > 0.001) {
+          ctx.globalAlpha = shadowAlpha;
+          ctx.fillStyle = '#000';
+          ctx.fillRect(x, y, Math.min(blockSize, canvas.width - x), Math.min(blockSize, canvas.height - y));
+        }
+
+        const highlightAlpha = Math.max(0, Math.min(0.14, lightInfo.highlightAmount * 0.6));
+        if (highlightAlpha > 0.001) {
+          ctx.globalAlpha = highlightAlpha;
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(x, y, Math.min(blockSize, canvas.width - x), Math.min(blockSize, canvas.height - y));
         }
       }
     }
+    ctx.restore();
 
-    applyPostTileNoise(pixels, canvas.width, canvas.height, cellWidth, cellHeight, seed);
-    ctx.putImageData(imageData, 0, 0);
+    if (UI && UI.addLog) {
+      UI.addLog(`Terrain post-process applied: blend/shadow blocks=${blockSize}px.`);
+    }
+
+    // Apply the same post-texture variation pass used for colored terrain:
+    // subtle color noise after texture base + blend/shadow overlay.
+    applyPostTileNoiseCanvas(ctx, canvas.width, canvas.height, cellWidth, cellHeight, seed);
+    if (UI && UI.addLog) {
+      UI.addLog(`Terrain color noise applied: divisions=${Math.max(1, Math.round(State.camera.noiseGridDivisions || 1))}.`);
+    }
+
+    const preRoadCanvas = document.createElement("canvas");
+    preRoadCanvas.width = canvas.width;
+    preRoadCanvas.height = canvas.height;
+    const preRoadCtx = preRoadCanvas.getContext("2d", { alpha: false });
+    if (preRoadCtx) {
+      preRoadCtx.drawImage(canvas, 0, 0);
+    }
+
     drawRoadOverlay(ctx, cellWidth, cellHeight);
-    redrawElevatedTerrainOverRoads(ctx, imageData, cellWidth, cellHeight);
+    redrawElevatedTerrainOverRoadsFromCanvas(ctx, preRoadCanvas, cellWidth, cellHeight);
     render.needsBackgroundRebuild = false;
     render.needsBackgroundUpload = true;
+    console.info(`Background rebuild finished (${canvas.width}x${canvas.height}).`);
+    if (UI && UI.addLog) {
+      UI.addLog(`Terrain rebuild finished: roads layered, background ready.`);
+    }
   }
 
   function ensureBackgroundTexture(gl) {
@@ -1774,6 +2095,13 @@ window.Game = window.Game || {};
     calculateFitZoom,
     updateZoomLimits,
     fitCameraToWorld,
-    convertRenderDeltaToCameraDelta
+    convertRenderDeltaToCameraDelta,
+    ensureTerrainTexturesLoaded,
+    getTerrainTextureStatus: function () {
+      return {
+        status: State.render.textureLoadStatus,
+        count: Object.keys(State.render.textureImages || {}).length
+      };
+    }
   };
 })();

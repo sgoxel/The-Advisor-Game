@@ -39,6 +39,20 @@ window.Game.Config = {
 
   DEFAULT_SHOW_GRID: false,
 
+  TEXTURE_DIRECTORY: "textures",
+  TEXTURE_FILES: {
+    grass: "grass_tile_texture.png",
+    dirt: "dirt_tile_texture.png",
+    forest: "forest_tile_texture.png",
+    lake: "lake_tile_texture.png",
+    river: "river_tile_texture.png",
+    road: "road_tile_texture.png",
+    mountain: "mountain_tile_texture.png",
+    settlement: "settlement_tile_texture.png"
+  },
+
+  DEFAULT_TEXTURE_TINT_STRENGTH: 0.38,
+
   DEFAULT_RELIEF_ENABLED: true,
 
   DEFAULT_SUN_AZIMUTH: 45,

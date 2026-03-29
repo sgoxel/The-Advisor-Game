@@ -95,6 +95,7 @@ window.Game = window.Game || {};
       menuSaveBtn: null,
       menuLoadBtn: null,
       menuExportMapDataBtn: null,
+      menuExportMasksBtn: null,
 
       logModal: null,
       logBtn: null,
@@ -130,7 +131,8 @@ window.Game = window.Game || {};
         manaBar: null
       },
 
-      params: {}
+      params: {},
+      textureInfo: {}
     },
 
     render: {
@@ -145,7 +147,11 @@ window.Game = window.Game || {};
       needsBackgroundRebuild: true,
       needsBackgroundUpload: true,
       backgroundTextureReady: false,
-      worldBackgroundCanvas: null
+      worldBackgroundCanvas: null,
+      textureImages: {},
+      texturePatterns: {},
+      textureLoadPromise: null,
+      textureLoadStatus: "idle"
     },
 
     log: {

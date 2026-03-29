@@ -23,7 +23,8 @@ window.Game.Locales.en = {
     "githubPage": "Github Page",
     "save": "Export Map Image",
     "load": "Load Map",
-    "exportMapData": "Export Map Data"
+    "exportMapData": "Export Map Data",
+    "exportMasks": "Export Tile Masks"
   },
   "stats": {
     "gold": "Gold",

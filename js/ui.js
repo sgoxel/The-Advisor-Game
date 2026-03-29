@@ -4,7 +4,7 @@ window.Game = window.Game || {};
 (function () {
   const State = window.Game.State;
 
-  function buildFullMapExportCanvas() {
+  function buildSquareMapCanvas() {
     const world = State.world;
     const render = State.render;
     const renderer = window.Game && window.Game.Renderer;
@@ -45,16 +45,32 @@ window.Game = window.Game || {};
       baseCtx.restore();
     }
 
-    const exportCanvas = document.createElement("canvas");
-    exportCanvas.width = baseCanvas.height;
-    exportCanvas.height = baseCanvas.width;
+    return baseCanvas;
+  }
 
-    const ctx = exportCanvas.getContext("2d", { alpha: false });
-    ctx.translate(exportCanvas.width, 0);
-    ctx.rotate(Math.PI / 2);
-    ctx.drawImage(baseCanvas, 0, 0);
+  function buildDiamondMapExportCanvas() {
+    const baseCanvas = buildSquareMapCanvas();
+    if (!baseCanvas) return null;
 
-    return exportCanvas;
+    const padding = 2;
+    const bboxWidth = Math.ceil((baseCanvas.width + baseCanvas.height) / Math.SQRT2) + padding * 2;
+    const bboxHeight = bboxWidth;
+
+    const diamondCanvas = document.createElement("canvas");
+    diamondCanvas.width = bboxWidth;
+    diamondCanvas.height = bboxHeight;
+
+    const ctx = diamondCanvas.getContext("2d", { alpha: true });
+    ctx.clearRect(0, 0, diamondCanvas.width, diamondCanvas.height);
+    ctx.translate(diamondCanvas.width / 2, diamondCanvas.height / 2);
+    ctx.rotate(Math.PI / 4);
+    ctx.drawImage(baseCanvas, -baseCanvas.width / 2, -baseCanvas.height / 2);
+
+    return diamondCanvas;
+  }
+
+  function buildFullMapExportCanvas() {
+    return buildDiamondMapExportCanvas();
   }
 
   function buildSafeBaseFilename() {
@@ -142,6 +158,33 @@ window.Game = window.Game || {};
     return canvas;
   }
 
+  const TILE_EXPORT_CODES = {
+    grass: "gr",
+    dirt: "di",
+    forest: "fo",
+    lake: "la",
+    river: "ri",
+    road: "ro",
+    mountain: "mo",
+    settlement: "se"
+  };
+
+  function encodeTileType(tileType) {
+    return TILE_EXPORT_CODES[tileType] || String(tileType || "gr").slice(0, 2).toLowerCase();
+  }
+
+  function buildCompactTileRecord(tile, x, y) {
+    const record = {
+      cr: `${x},${y}`,
+      t: encodeTileType(tile && tile.type)
+    };
+    const elevation = Number(tile && tile.elevation);
+    if (Number.isFinite(elevation) && elevation !== 0) {
+      record.e = elevation;
+    }
+    return record;
+  }
+
   function buildMapDataExportObject(options = {}) {
     const world = State.world || {};
     const camera = State.camera || {};
@@ -150,8 +193,7 @@ window.Game = window.Game || {};
 
     const payload = {
       format: "simsoft-map-data",
-      version: 3,
-      exportedAt: new Date().toISOString(),
+      version: 5,
       seed: world.seed || "",
       map: {
         cols: world.cols || 0,
@@ -181,13 +223,7 @@ window.Game = window.Game || {};
       } : null,
       params: world.params || null,
       tiles: (world.terrain || []).flatMap((rowTiles, y) =>
-        rowTiles.map((tile, x) => ({
-          x,
-          y,
-          type: tile.type,
-          elevation: Number(tile.elevation || 0),
-          tags: tile.tags ? Array.from(tile.tags).sort() : []
-        }))
+        rowTiles.map((tile, x) => buildCompactTileRecord(tile, x, y))
       )
     };
 
@@ -196,6 +232,7 @@ window.Game = window.Game || {};
         mimeType: "image/png",
         width: exportCanvas.width,
         height: exportCanvas.height,
+        shape: "diamond",
         dataUrl: exportCanvas.toDataURL("image/png")
       };
     }
@@ -236,14 +273,17 @@ window.Game = window.Game || {};
     const filename = `map.js`;
 
     try {
-      const payload = buildMapDataExportObject();
+      const payload = buildMapDataExportObject({ excludeMapImage: true });
       if (!payload) {
         addLog(I18n && I18n.t ? I18n.t("logs.mapDataExportFailed") : "Map data export failed.", "Full map canvas not available.");
         return;
       }
 
-      const scriptText = `window.__SIMSOFT_IMPORTED_MAP_DATA__ = ${JSON.stringify(payload, null, 2)};
-`;
+      const scriptText = [
+        "window.__SIMSOFT_IMPORTED_MAP_DATA__ = ",
+        JSON.stringify(payload, null, 2),
+        ";\n"
+      ].join("");
       const blob = new Blob([scriptText], { type: "application/javascript;charset=utf-8" });
       triggerDownload(URL.createObjectURL(blob), filename, "logs.mapDataExportCompleted");
     } catch (error) {
@@ -251,6 +291,130 @@ window.Game = window.Game || {};
         I18n && I18n.t ? I18n.t("logs.mapDataExportFailed") : "Map data export failed.",
         error && error.message ? error.message : String(error)
       );
+    }
+  }
+
+  function getTileTypeMaskList() {
+    const world = State.world || {};
+    const known = ["grass", "dirt", "mountain", "lake", "river", "road", "forest", "settlement"];
+    const found = new Set();
+    for (const row of (world.terrain || [])) {
+      for (const tile of (row || [])) {
+        if (tile && typeof tile.type === "string" && tile.type) found.add(tile.type);
+      }
+    }
+    return known.filter((type) => found.has(type) || known.includes(type));
+  }
+
+  function renderTileMaskCanvas(tileType) {
+    const world = State.world || {};
+    const sourceCanvas = buildSquareMapCanvas();
+    if (!sourceCanvas) return null;
+    const maskCanvas = document.createElement("canvas");
+    maskCanvas.width = sourceCanvas.width;
+    maskCanvas.height = sourceCanvas.height;
+    const ctx = maskCanvas.getContext("2d", { alpha: true });
+    ctx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+
+    const cellWidth = maskCanvas.width / Math.max(1, world.cols || 1);
+    const cellHeight = maskCanvas.height / Math.max(1, world.rows || 1);
+    ctx.fillStyle = "rgba(255,255,255,1)";
+    for (let row = 0; row < (world.rows || 0); row++) {
+      for (let col = 0; col < (world.cols || 0); col++) {
+        const tile = world.terrain && world.terrain[row] ? world.terrain[row][col] : null;
+        if (!tile || tile.type !== tileType) continue;
+        ctx.fillRect(Math.round(col * cellWidth), Math.round(row * cellHeight), Math.ceil(cellWidth), Math.ceil(cellHeight));
+      }
+    }
+
+    const diamondCanvas = document.createElement("canvas");
+    const padding = 2;
+    const bboxWidth = Math.ceil((maskCanvas.width + maskCanvas.height) / Math.SQRT2) + padding * 2;
+    diamondCanvas.width = bboxWidth;
+    diamondCanvas.height = bboxWidth;
+    const dctx = diamondCanvas.getContext("2d", { alpha: true });
+    dctx.clearRect(0, 0, diamondCanvas.width, diamondCanvas.height);
+    dctx.translate(diamondCanvas.width / 2, diamondCanvas.height / 2);
+    dctx.rotate(Math.PI / 4);
+    dctx.drawImage(maskCanvas, -maskCanvas.width / 2, -maskCanvas.height / 2);
+    return diamondCanvas;
+  }
+
+  function crc32(bytes) {
+    let crc = -1;
+    if (!crc32.table) {
+      crc32.table = new Uint32Array(256);
+      for (let i = 0; i < 256; i++) {
+        let c = i;
+        for (let j = 0; j < 8; j++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+        crc32.table[i] = c >>> 0;
+      }
+    }
+    for (let i = 0; i < bytes.length; i++) crc = crc32.table[(crc ^ bytes[i]) & 255] ^ (crc >>> 8);
+    return (crc ^ -1) >>> 0;
+  }
+
+  function makeZip(entries) {
+    const encoder = typeof TextEncoder === "function" ? new TextEncoder() : null;
+    const files = [];
+    let localSize = 0;
+    let centralSize = 0;
+    for (const entry of entries) {
+      const nameBytes = encoder ? encoder.encode(entry.name) : Uint8Array.from(Array.from(entry.name).map(ch => ch.charCodeAt(0) & 255));
+      const data = entry.data;
+      const crc = crc32(data);
+      files.push({ nameBytes, data, crc, offset: localSize });
+      localSize += 30 + nameBytes.length + data.length;
+      centralSize += 46 + nameBytes.length;
+    }
+    const out = new Uint8Array(localSize + centralSize + 22);
+    let ptr = 0;
+    const w16 = v => { out[ptr++] = v & 255; out[ptr++] = (v >>> 8) & 255; };
+    const w32 = v => { out[ptr++] = v & 255; out[ptr++] = (v >>> 8) & 255; out[ptr++] = (v >>> 16) & 255; out[ptr++] = (v >>> 24) & 255; };
+    for (const f of files) {
+      w32(0x04034b50); w16(20); w16(0); w16(0); w16(0); w16(0); w32(f.crc); w32(f.data.length); w32(f.data.length); w16(f.nameBytes.length); w16(0);
+      out.set(f.nameBytes, ptr); ptr += f.nameBytes.length;
+      out.set(f.data, ptr); ptr += f.data.length;
+    }
+    const centralOffset = ptr;
+    for (const f of files) {
+      w32(0x02014b50); w16(20); w16(20); w16(0); w16(0); w16(0); w16(0); w32(f.crc); w32(f.data.length); w32(f.data.length); w16(f.nameBytes.length); w16(0); w16(0); w16(0); w16(0); w32(0); w32(f.offset);
+      out.set(f.nameBytes, ptr); ptr += f.nameBytes.length;
+    }
+    const centralLength = ptr - centralOffset;
+    w32(0x06054b50); w16(0); w16(0); w16(files.length); w16(files.length); w32(centralLength); w32(centralOffset); w16(0);
+    return new Blob([out], { type: "application/zip" });
+  }
+
+  function blobToUint8Array(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(new Uint8Array(reader.result));
+      reader.onerror = () => reject(reader.error || new Error("Blob could not be read."));
+      reader.readAsArrayBuffer(blob);
+    });
+  }
+
+  async function exportTileMasks() {
+    try {
+      const tileTypes = getTileTypeMaskList();
+      const entries = [];
+      for (const tileType of tileTypes) {
+        const canvas = renderTileMaskCanvas(tileType);
+        if (!canvas) continue;
+        const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+        if (!blob) continue;
+        const bytes = await blobToUint8Array(blob);
+        entries.push({ name: `${tileType}.png`, data: bytes });
+      }
+      if (!entries.length) {
+        addLog("Tile mask export failed.", "No tile masks could be generated.");
+        return;
+      }
+      const zipBlob = makeZip(entries);
+      triggerDownload(URL.createObjectURL(zipBlob), "tile-masks.zip", "logs.exportCompleted");
+    } catch (error) {
+      addLog("Tile mask export failed.", error && error.message ? error.message : String(error));
     }
   }
   const I18n = window.Game.I18n;
@@ -272,6 +436,7 @@ window.Game = window.Game || {};
     dom.menuSaveBtn = document.getElementById("menuSaveBtn");
     dom.menuLoadBtn = document.getElementById("menuLoadBtn");
     dom.menuExportMapDataBtn = document.getElementById("menuExportMapDataBtn");
+    dom.menuExportMasksBtn = document.getElementById("menuExportMasksBtn");
     dom.localMapFolderInput = document.getElementById("localMapFolderInput");
     dom.settingsBtn = document.getElementById("settingsBtn");
     dom.applySettingsBtn = document.getElementById("applySettingsBtn");
@@ -326,6 +491,16 @@ window.Game = window.Game || {};
     dom.params.dirtArea = document.getElementById("paramDirtArea");
     dom.params.waterArea = document.getElementById("paramWaterArea");
     dom.params.stoneArea = document.getElementById("paramStoneArea");
+
+    dom.textureInfo.directory = document.getElementById("textureDirectoryInput");
+    dom.textureInfo.grass = document.getElementById("textureGrassInput");
+    dom.textureInfo.dirt = document.getElementById("textureDirtInput");
+    dom.textureInfo.forest = document.getElementById("textureForestInput");
+    dom.textureInfo.lake = document.getElementById("textureLakeInput");
+    dom.textureInfo.river = document.getElementById("textureRiverInput");
+    dom.textureInfo.road = document.getElementById("textureRoadInput");
+    dom.textureInfo.mountain = document.getElementById("textureMountainInput");
+    dom.textureInfo.settlement = document.getElementById("textureSettlementInput");
   }
 
   function syncSettingsInputs() {
@@ -345,6 +520,19 @@ window.Game = window.Game || {};
     if (dom.shadowStrengthInput) dom.shadowStrengthInput.value = State.camera.shadowStrength;
     if (dom.highlightStrengthInput) dom.highlightStrengthInput.value = State.camera.highlightStrength;
     if (dom.shadowLengthInput) dom.shadowLengthInput.value = State.camera.shadowLength;
+
+    if (dom.textureInfo && window.Game && window.Game.Config) {
+      const textureFiles = window.Game.Config.TEXTURE_FILES || {};
+      if (dom.textureInfo.directory) dom.textureInfo.directory.value = window.Game.Config.TEXTURE_DIRECTORY || "textures";
+      if (dom.textureInfo.grass) dom.textureInfo.grass.value = textureFiles.grass || "";
+      if (dom.textureInfo.dirt) dom.textureInfo.dirt.value = textureFiles.dirt || "";
+      if (dom.textureInfo.forest) dom.textureInfo.forest.value = textureFiles.forest || "";
+      if (dom.textureInfo.lake) dom.textureInfo.lake.value = textureFiles.lake || "";
+      if (dom.textureInfo.river) dom.textureInfo.river.value = textureFiles.river || "";
+      if (dom.textureInfo.road) dom.textureInfo.road.value = textureFiles.road || "";
+      if (dom.textureInfo.mountain) dom.textureInfo.mountain.value = textureFiles.mountain || "";
+      if (dom.textureInfo.settlement) dom.textureInfo.settlement.value = textureFiles.settlement || "";
+    }
   }
 
   function percent(value) { return I18n.t("paramValues.percent", { value }); }
@@ -669,6 +857,12 @@ window.Game = window.Game || {};
     if (dom.menuExportMapDataBtn) {
       dom.menuExportMapDataBtn.addEventListener("click", () => {
         exportMapData();
+        closeMainMenu();
+      });
+    }
+    if (dom.menuExportMasksBtn) {
+      dom.menuExportMasksBtn.addEventListener("click", () => {
+        exportTileMasks();
         closeMainMenu();
       });
     }

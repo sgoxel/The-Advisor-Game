@@ -29,13 +29,67 @@ window.Game = window.Game || {};
     };
   }
 
+  const IMPORT_TILE_CODES = {
+    gr: "grass",
+    di: "dirt",
+    fo: "forest",
+    la: "lake",
+    ri: "river",
+    ro: "road",
+    mo: "mountain",
+    se: "settlement"
+  };
+
+  function decodeImportedTileType(tile) {
+    const compactType = tile && typeof tile.t === "string" ? tile.t.toLowerCase() : "";
+    if (compactType && IMPORT_TILE_CODES[compactType]) return IMPORT_TILE_CODES[compactType];
+    return tile && typeof tile.type === "string" ? tile.type : "grass";
+  }
+
+  function buildTagsForImportedType(type, tile) {
+    const tags = new Set(Array.isArray(tile && tile.tags) ? tile.tags : []);
+    if (type === "road") tags.add("road");
+    if (type === "settlement") tags.add("settlement");
+    if (type === "forest") {
+      tags.add("forest");
+      tags.add("blocked");
+    }
+    if (type === "mountain") {
+      tags.add("mountain");
+      tags.add("mountainCore");
+      tags.add("blocked");
+    }
+    if (type === "lake") {
+      tags.add("lake");
+      tags.add("blocked");
+    }
+    if (type === "river") {
+      tags.add("stream");
+      tags.add("blocked");
+    }
+    return tags;
+  }
+
   function normalizeImportedTile(tile) {
-    const type = tile && typeof tile.type === "string" ? tile.type : "grass";
-    const numericElevation = Number(tile && tile.elevation);
+    const type = decodeImportedTileType(tile);
+    const numericElevation = Number(tile && (tile.elevation ?? tile.e));
     return {
       type,
       elevation: Number.isFinite(numericElevation) ? numericElevation : 0,
-      tags: new Set(Array.isArray(tile && tile.tags) ? tile.tags : [])
+      tags: buildTagsForImportedType(type, tile)
+    };
+  }
+
+  function parseImportedTileCoordinate(tile) {
+    if (tile && typeof tile.cr === "string") {
+      const match = tile.cr.match(/^\s*(-?\d+)\s*,\s*(-?\d+)\s*$/);
+      if (match) {
+        return { x: Number(match[1]), y: Number(match[2]) };
+      }
+    }
+    return {
+      x: Number(tile && tile.x),
+      y: Number(tile && tile.y)
     };
   }
 
@@ -44,8 +98,7 @@ window.Game = window.Game || {};
     const grid = Array.from({ length: rows }, () => Array.from({ length: cols }, () => normalizeImportedTile(null)));
 
     for (const tile of tiles) {
-      const x = Number(tile && tile.x);
-      const y = Number(tile && tile.y);
+      const { x, y } = parseImportedTileCoordinate(tile);
       if (!Number.isInteger(x) || !Number.isInteger(y)) continue;
       if (y < 0 || y >= rows || x < 0 || x >= cols) continue;
       grid[y][x] = normalizeImportedTile(tile);
@@ -61,6 +114,70 @@ window.Game = window.Game || {};
       image.onerror = () => reject(new Error(`Failed to load image: ${src}`));
       image.src = src;
     });
+  }
+
+
+  function getExpectedBackgroundResolution(cols, rows) {
+    const maxSize = 4096;
+    const safeCols = Math.max(1, Number(cols) || 1);
+    const safeRows = Math.max(1, Number(rows) || 1);
+    const pxPerCell = Math.max(1, Math.floor(Math.min(maxSize / safeCols, maxSize / safeRows, 64)));
+    return {
+      width: Math.max(1, Math.min(maxSize, safeCols * pxPerCell)),
+      height: Math.max(1, Math.min(maxSize, safeRows * pxPerCell))
+    };
+  }
+
+  function convertDiamondImageToSquareCanvas(image, cols, rows) {
+    if (!image) return null;
+    const resolution = getExpectedBackgroundResolution(cols, rows);
+    const canvas = document.createElement("canvas");
+    canvas.width = resolution.width;
+    canvas.height = resolution.height;
+    const ctx = canvas.getContext("2d", { alpha: false });
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate(-Math.PI / 4);
+    ctx.drawImage(image, -image.width / 2, -image.height / 2);
+    return canvas;
+  }
+
+  function imageLooksDiamondShaped(image) {
+    if (!image) return false;
+    try {
+      const width = Math.max(1, image.naturalWidth || image.width || 0);
+      const height = Math.max(1, image.naturalHeight || image.height || 0);
+      const probeCanvas = document.createElement("canvas");
+      probeCanvas.width = width;
+      probeCanvas.height = height;
+      const probeCtx = probeCanvas.getContext("2d", { alpha: true, willReadFrequently: true });
+      if (!probeCtx) return false;
+      probeCtx.clearRect(0, 0, width, height);
+      probeCtx.drawImage(image, 0, 0, width, height);
+
+      const sampleAlpha = (x, y) => {
+        const sx = Math.max(0, Math.min(width - 1, Math.round(x)));
+        const sy = Math.max(0, Math.min(height - 1, Math.round(y)));
+        return probeCtx.getImageData(sx, sy, 1, 1).data[3];
+      };
+
+      const margin = Math.max(2, Math.floor(Math.min(width, height) * 0.04));
+      const centerAlpha = sampleAlpha(width / 2, height / 2);
+      const topLeftAlpha = sampleAlpha(margin, margin);
+      const topRightAlpha = sampleAlpha(width - 1 - margin, margin);
+      const bottomLeftAlpha = sampleAlpha(margin, height - 1 - margin);
+      const bottomRightAlpha = sampleAlpha(width - 1 - margin, height - 1 - margin);
+      const cornerThreshold = 16;
+      const centerThreshold = 32;
+
+      return centerAlpha > centerThreshold
+        && topLeftAlpha <= cornerThreshold
+        && topRightAlpha <= cornerThreshold
+        && bottomLeftAlpha <= cornerThreshold
+        && bottomRightAlpha <= cornerThreshold;
+    } catch (error) {
+      return false;
+    }
   }
 
 
@@ -598,7 +715,7 @@ window.Game = window.Game || {};
     try {
       const payload = await extractMapDataFromImageSource(sourceImage);
       if (!payload) {
-        return { imageFound: true, imported: null };
+        return { imageFound: true, imported: null, sourceImage };
       }
       const resolvedSeed = resolveImportedSeed(seed, payload);
       let renderImage = await loadImageFromPayload(payload);
@@ -616,7 +733,8 @@ window.Game = window.Game || {};
           payload,
           image: renderImage,
           source: sourceLabel,
-          loadedFromEmbeddedPng: true
+          loadedFromEmbeddedPng: true,
+          sourceImage
         }
       };
     } catch (error) {
@@ -624,13 +742,13 @@ window.Game = window.Game || {};
     }
   }
 
-  async function tryLoadMapFromJsPath(seed, jsUrl, sourceLabel) {
+  async function tryLoadMapFromJsPath(seed, jsUrl, sourceLabel, fallbackImage) {
     let payload = null;
     try {
       payload = await loadMapDataFromJsUrl(jsUrl);
       if (!payload) return null;
-      const image = await loadImageFromPayload(payload);
-      if (!image) throw new Error(`Map data script did not contain mapImage.dataUrl: ${jsUrl}`);
+      const image = fallbackImage || await loadImageFromPayload(payload);
+      if (!image) throw new Error(`Map data script did not provide an image and no matching PNG was available: ${jsUrl}`);
       const resolvedSeed = resolveImportedSeed(seed, payload);
       await cacheImportedMap(resolvedSeed, payload, image, sourceLabel);
       if (resolvedSeed !== seed) {
@@ -694,7 +812,7 @@ window.Game = window.Game || {};
       if (pngResult && pngResult.imageFound) {
         UI.addLog(`PNG was found but embedded map data could not be decoded.`, `Trying JS sidecar in the same folder: ${candidate.jsUrl}`);
         try {
-          const importedFromJs = await tryLoadMapFromJsPath(candidate.key, candidate.jsUrl, `${candidate.sourceLabel} JS`);
+          const importedFromJs = await tryLoadMapFromJsPath(candidate.key, candidate.jsUrl, `${candidate.sourceLabel} JS`, pngResult && pngResult.sourceImage ? pngResult.sourceImage : null);
           if (importedFromJs) {
             UI.addLog(`Startup load succeeded with JS sidecar.`, `Source: ${candidate.jsUrl}`);
             return importedFromJs;
@@ -724,7 +842,7 @@ window.Game = window.Game || {};
       const pngResult = await tryLoadMapFromPngPath(safeSeed, pngUrl, "map folder (seed PNG)");
       if (pngResult && pngResult.imported) return pngResult.imported;
       if (pngResult && pngResult.imageFound) {
-        const importedFromJs = await tryLoadMapFromJsPath(safeSeed, jsUrl, "map folder (seed JS)");
+        const importedFromJs = await tryLoadMapFromJsPath(safeSeed, jsUrl, "map folder (seed JS)", pngResult && pngResult.sourceImage ? pngResult.sourceImage : null);
         if (importedFromJs) return importedFromJs;
       }
     } catch (error) {
@@ -805,16 +923,27 @@ window.Game = window.Game || {};
     camera.x = world.player.col;
     camera.y = world.player.row;
 
-    const sourceWidth = image.naturalWidth || image.width;
-    const sourceHeight = image.naturalHeight || image.height;
-    const backgroundCanvas = document.createElement("canvas");
-    backgroundCanvas.width = sourceHeight;
-    backgroundCanvas.height = sourceWidth;
+    const importedImageMeta = payload && payload.mapImage ? payload.mapImage : null;
+    const importedImageShape = importedImageMeta && typeof importedImageMeta.shape === "string"
+      ? importedImageMeta.shape.toLowerCase()
+      : "";
+    const shouldTreatImageAsDiamond = importedImageShape === "diamond" || (!importedImageShape && imageLooksDiamondShaped(image));
 
-    const backgroundCtx = backgroundCanvas.getContext("2d", { alpha: false });
-    backgroundCtx.translate(0, backgroundCanvas.height);
-    backgroundCtx.rotate(-Math.PI / 2);
-    backgroundCtx.drawImage(image, 0, 0);
+    let backgroundCanvas = null;
+    if (shouldTreatImageAsDiamond) {
+      backgroundCanvas = convertDiamondImageToSquareCanvas(image, resolvedCols, resolvedRows);
+    } else {
+      const sourceWidth = image.naturalWidth || image.width;
+      const sourceHeight = image.naturalHeight || image.height;
+      backgroundCanvas = document.createElement("canvas");
+      backgroundCanvas.width = sourceHeight;
+      backgroundCanvas.height = sourceWidth;
+
+      const backgroundCtx = backgroundCanvas.getContext("2d", { alpha: false });
+      backgroundCtx.translate(0, backgroundCanvas.height);
+      backgroundCtx.rotate(-Math.PI / 2);
+      backgroundCtx.drawImage(image, 0, 0);
+    }
 
     render.worldBackgroundCanvas = backgroundCanvas;
     render.needsBackgroundRebuild = false;
@@ -1073,6 +1202,26 @@ window.Game = window.Game || {};
     });
   }
 
+
+  async function ensureTerrainTexturesLoaded() {
+    const renderer = window.Game.Renderer;
+    if (!renderer || !renderer.ensureTerrainTexturesLoaded) {
+      UI.addLog("Terrain texture loader is not available.");
+      return;
+    }
+    try {
+      await renderer.ensureTerrainTexturesLoaded();
+      if (renderer.getTerrainTextureStatus) {
+        const info = renderer.getTerrainTextureStatus();
+        UI.addLog(`Terrain textures loaded (${info.count}).`, `Status: ${info.status}`);
+      } else {
+        UI.addLog("Terrain textures loaded.");
+      }
+    } catch (error) {
+      UI.addLog("Terrain textures could not be fully loaded.", error && error.message ? error.message : String(error));
+    }
+  }
+
   async function init() {
     try {
       await I18n.loadLanguage(I18n.getPreferredLanguage());
@@ -1083,6 +1232,7 @@ window.Game = window.Game || {};
       Minimap.bindMinimapEvents();
       registerGlobalErrorHandlers();
       UI.applyCurrentLanguageToUI();
+      await ensureTerrainTexturesLoaded();
 
       resizeAll();
       UI.addLog(I18n.t("logs.appStarted"));

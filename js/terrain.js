@@ -214,8 +214,8 @@ window.Game = window.Game || {};
     if (inBounds(row, col)) {
       return { row, col, adjacentRow: bottom, adjacentCol: col };
     }
-    const fallbackRow = Math.max(0, area.top - 1);
-    return { row: fallbackRow, col, adjacentRow: area.top, adjacentCol: col };
+    const fallbackRow = Math.max(0, bottom);
+    return { row: fallbackRow, col, adjacentRow: bottom, adjacentCol: col };
   }
 
   function findRoadPath(grid, reserved, startRow, startCol, endRow, endCol, seedSalt, avoidKeys) {
@@ -284,19 +284,29 @@ window.Game = window.Game || {};
       const currentRow = Math.floor(currentIndex / cols);
       const currentCol = currentIndex % cols;
       const neighbors = [
-        [currentRow - 1, currentCol],
-        [currentRow + 1, currentCol],
-        [currentRow, currentCol - 1],
-        [currentRow, currentCol + 1]
+        [currentRow - 1, currentCol, 1.0],
+        [currentRow + 1, currentCol, 1.0],
+        [currentRow, currentCol - 1, 1.0],
+        [currentRow, currentCol + 1, 1.0],
+        [currentRow - 1, currentCol - 1, 1.41421356237],
+        [currentRow - 1, currentCol + 1, 1.41421356237],
+        [currentRow + 1, currentCol - 1, 1.41421356237],
+        [currentRow + 1, currentCol + 1, 1.41421356237]
       ];
 
-      for (const [nextRow, nextCol] of neighbors) {
+      for (const [nextRow, nextCol, distanceCost] of neighbors) {
         if (!inBounds(nextRow, nextCol)) continue;
         const nextIndex = cellIndex(nextRow, nextCol);
         if (visited[nextIndex]) continue;
+        const isDiagonal = nextRow !== currentRow && nextCol !== currentCol;
+        if (isDiagonal) {
+          const sideA = traversalCost(currentRow, nextCol);
+          const sideB = traversalCost(nextRow, currentCol);
+          if (!Number.isFinite(sideA) && !Number.isFinite(sideB)) continue;
+        }
         const stepCost = traversalCost(nextRow, nextCol);
         if (!Number.isFinite(stepCost)) continue;
-        const tentative = gScore[currentIndex] + stepCost;
+        const tentative = gScore[currentIndex] + stepCost * distanceCost;
         if (tentative < gScore[nextIndex]) {
           gScore[nextIndex] = tentative;
           parent[nextIndex] = currentIndex;
@@ -410,12 +420,9 @@ window.Game = window.Game || {};
     const roadEntrances = [];
 
     for (const gate of gates) {
-      const stemRow = inBounds(gate.row + 1, gate.col) ? gate.row + 1 : gate.row;
+      const stemRow = gate.row;
       const stemCol = gate.col;
       stampRoadTile(grid, reserved, gate.row, gate.col);
-      if (stemRow !== gate.row || stemCol !== gate.col) {
-        stampRoadTile(grid, reserved, stemRow, stemCol);
-      }
 
       const primaryJunction = junctions.slice().sort((a, b) => Math.hypot(a.row - stemRow, a.col - stemCol) - Math.hypot(b.row - stemRow, b.col - stemCol))[0];
       const avoidKeys = new Set(protectedGateKeys);
@@ -448,7 +455,7 @@ window.Game = window.Game || {};
     for (let i = 0; i < extraLinks && i < secondaryCandidates.length; i++) {
       const gate = secondaryCandidates[i].gate;
       if (connectionCounts.get(gate.settlementId) >= 2) continue;
-      const stemRow = inBounds(gate.row + 1, gate.col) ? gate.row + 1 : gate.row;
+      const stemRow = gate.row;
       const stemCol = gate.col;
       const alternativeJunction = junctions
         .filter((junction) => junction.row !== stemRow || junction.col !== stemCol)

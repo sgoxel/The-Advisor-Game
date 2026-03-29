@@ -252,3 +252,9 @@ Date: 2026-03-28
 Modified files: js/terrain.js, js/topology.js, js/README.txt
 Description: Reworked settlement road generation so each settlement road now starts from the tile directly below the midpoint of the settlement's bottom edge, then connects into a junction-based road network instead of chaining settlements in a fixed order. Added protected gate routing so settlement exits stay clean. Reworked dirt generation into clustered blobs and changed dirt targeting so dirt occupies 30% to 70% of the combined grass+dirt surface area.
 Reason: Meet the requested settlement connection logic and clustered dirt coverage constraints with minimal architectural impact.
+
+
+Date: 2026-03-28
+Modified files: index.html, js/ui.js, js/app.js, js/state.js, locales/en.json, locales/tr.json, locales/en.js, locales/tr.js, js/README.txt
+Description: PNG export now outputs a transparent diamond-shaped map image matching gameplay orientation, and PNG import now restores these diamond exports correctly. Added a new main menu action to export per-tile-type mask PNG images bundled into a ZIP archive.
+Reason: Support gameplay-shaped PNG portability and provide mask assets for all tile types without changing the rest of the application.

@@ -23,7 +23,8 @@ window.Game.Locales.tr = {
     "githubPage": "Github Sayfası",
     "save": "Harita Görselini Dışa Aktar",
     "load": "Haritayı Yükle",
-    "exportMapData": "Harita Verisini Dışa Aktar"
+    "exportMapData": "Harita Verisini Dışa Aktar",
+    "exportMasks": "Döşeme Maskelerini Dışa Aktar"
   },
   "stats": {
     "gold": "Altın",
