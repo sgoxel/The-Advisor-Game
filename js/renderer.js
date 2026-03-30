@@ -1689,111 +1689,142 @@
     if (textureCtx) textureCtx.imageSmoothingEnabled = false;
     if (!textureCtx) return null;
 
+    // Helper: find a reasonable lower-layer type for upper-layer tiles
+    function findLowerLayerType(r, c) {
+      const counts = Object.create(null);
+      for (let nr = r - 1; nr <= r + 1; nr++) {
+        for (let nc = c - 1; nc <= c + 1; nc++) {
+          if (nr < 0 || nc < 0 || nr >= world.rows || nc >= world.cols) continue;
+          if (nr === r && nc === c) continue;
+          const neighbor = getTile(nr, nc);
+          if (!neighbor) continue;
+          const nLevel = getRenderLevel(neighbor, nr, nc);
+          if (nLevel <= 1) {
+            const t = getTileType(nr, nc) || neighbor.type || 'grass';
+            counts[t] = (counts[t] || 0) + 1;
+          }
+        }
+      }
+      let best = null;
+      let bestCount = 0;
+      Object.keys(counts).forEach((k) => {
+        if (counts[k] > bestCount) {
+          best = k; bestCount = counts[k];
+        }
+      });
+      return best || 'grass';
+    }
+
+    // Pass 1: paint the lower-layer base for every cell. This ensures
+    // any trimmed/rounded upper-layer shapes will show the underlying
+    // tile texture in the empty areas.
     for (let row = 0; row < world.rows; row++) {
       for (let col = 0; col < world.cols; col++) {
-        const appearance = getVisualTileAppearance(row, col);
-        const pattern = getTileTexturePattern(textureCtx, appearance.type);
+        const tile = getTile(row, col);
         const x = Math.floor(col * cellWidth);
         const y = Math.floor(row * cellHeight);
         const width = Math.max(1, Math.ceil((col + 1) * cellWidth) - x);
         const height = Math.max(1, Math.ceil((row + 1) * cellHeight) - y);
 
+        let baseType;
+        if (!tile) {
+          baseType = 'grass';
+        } else {
+          const level = getRenderLevel(tile, row, col);
+          if (level <= 1) baseType = getTileType(row, col) || tile.type || 'grass';
+          else baseType = findLowerLayerType(row, col);
+        }
+
+        const pattern = getTileTexturePattern(textureCtx, baseType) || getTileTexturePattern(textureCtx, 'grass');
         if (pattern) {
           fillRectWithPattern(textureCtx, pattern, x, y, width, height);
         } else {
-          const fallbackPattern = getTileTexturePattern(textureCtx, "grass");
-          if (fallbackPattern) {
-            fillRectWithPattern(textureCtx, fallbackPattern, x, y, width, height);
-          } else {
-            textureCtx.fillStyle = rgbToCss(appearance.color);
-            textureCtx.fillRect(x, y, width, height);
-          }
+          const fillRgb = hexToRgb(terrainColor({ type: baseType }));
+          textureCtx.fillStyle = rgbToCss(fillRgb);
+          textureCtx.fillRect(x, y, width, height);
         }
+      }
+    }
+
+    // Pass 2: draw upper-layer cluster shapes (rounded/polygonal) on top
+    // of the base so corners are softened and empty areas expose the base.
+    for (let row = 0; row < world.rows; row++) {
+      for (let col = 0; col < world.cols; col++) {
+        const tile = getTile(row, col);
+        if (!tile) continue;
+        const level = getRenderLevel(tile, row, col);
+        if (level <= 1) continue; // only draw shapes for upper layers
+
+        const x = Math.floor(col * cellWidth);
+        const y = Math.floor(row * cellHeight);
+        const width = Math.max(1, Math.ceil((col + 1) * cellWidth) - x);
+        const height = Math.max(1, Math.ceil((row + 1) * cellHeight) - y);
+
+        const sameType = (r, c) => {
+          const t = getTile(r, c);
+          return !!(t && getTileType(r, c) === getTileType(row, col));
+        };
+
+        const n = row > 0 && sameType(row - 1, col);
+        const s = row < world.rows - 1 && sameType(row + 1, col);
+        const w = col > 0 && sameType(row, col - 1);
+        const e = col < world.cols - 1 && sameType(row, col + 1);
+
+        const pad = Math.max(2, Math.floor(Math.min(width, height) * 0.16));
+        const left = x + (w ? 0 : pad);
+        const right = x + width - (e ? 0 : pad);
+        const top = y + (n ? 0 : pad);
+        const bottom = y + height - (s ? 0 : pad);
+
+        const baseRadius = Math.max(2, Math.floor(Math.min(width, height) * 0.22));
+        const cornerRadius = (adj1, adj2) => {
+          if (adj1 && adj2) return 0;
+          if (adj1 || adj2) return Math.floor(baseRadius * 0.5);
+          return baseRadius;
+        };
+
+        const tl = cornerRadius(n, w);
+        const tr = cornerRadius(n, e);
+        const br = cornerRadius(s, e);
+        const bl = cornerRadius(s, w);
+
+        const pattern = getTileTexturePattern(textureCtx, getTileType(row, col) || tile.type) || getTileTexturePattern(textureCtx, 'grass');
+
+        textureCtx.save();
+        textureCtx.beginPath();
+        textureCtx.moveTo(left + tl, top);
+        textureCtx.lineTo(right - tr, top);
+        if (tr > 0) textureCtx.quadraticCurveTo(right, top, right, top + tr);
+        else textureCtx.lineTo(right, top);
+
+        textureCtx.lineTo(right, bottom - br);
+        if (br > 0) textureCtx.quadraticCurveTo(right, bottom, right - br, bottom);
+        else textureCtx.lineTo(right, bottom);
+
+        textureCtx.lineTo(left + bl, bottom);
+        if (bl > 0) textureCtx.quadraticCurveTo(left, bottom, left, bottom - bl);
+        else textureCtx.lineTo(left, bottom);
+
+        textureCtx.lineTo(left, top + tl);
+        if (tl > 0) textureCtx.quadraticCurveTo(left, top, left + tl, top);
+        else textureCtx.lineTo(left, top);
+        textureCtx.closePath();
+
+        if (pattern) {
+          textureCtx.fillStyle = pattern;
+          textureCtx.fill();
+        } else {
+          textureCtx.fillStyle = rgbToCss(hexToRgb(terrainColor({ type: getTileType(row, col) || tile.type })));
+          textureCtx.fill();
+        }
+        textureCtx.restore();
       }
     }
 
     return textureCanvas;
   }
 
-  // Apply elevation curve overlays: for tiles that are higher than neighbors,
-  // draw a small sloped edge filled with the lower neighbor's texture to
-  // visually suggest a curved slope. The extent of the overlay is driven by
-  // the `State.camera.curveAngle` setting (0-90 degrees).
-  function applyElevationCurves(ctx, cellWidth, cellHeight) {
-    const world = State.world;
-    if (!world || !world.terrain) return;
-    const angleDeg = Math.max(0, Math.min(Number(Config.MAX_CURVE_ANGLE || 90), Number(State.camera.curveAngle || Config.DEFAULT_CURVE_ANGLE || 0)));
-    if (angleDeg <= 0) return;
-    const angleFrac = angleDeg / 90;
-    const maxBlend = Math.max(cellWidth, cellHeight) * 0.5;
-
-    for (let row = 0; row < world.rows; row++) {
-      for (let col = 0; col < world.cols; col++) {
-        const tile = getTile(row, col);
-        if (!tile) continue;
-        const currLevel = getRenderLevel(tile, row, col);
-        const x = Math.floor(col * cellWidth);
-        const y = Math.floor(row * cellHeight);
-        const w = Math.max(1, Math.ceil((col + 1) * cellWidth) - x);
-        const h = Math.max(1, Math.ceil((row + 1) * cellHeight) - y);
-
-        const neighbors = [
-          { dr: -1, dc: 0, edge: 'n' },
-          { dr: 1, dc: 0, edge: 's' },
-          { dr: 0, dc: -1, edge: 'w' },
-          { dr: 0, dc: 1, edge: 'e' }
-        ];
-
-        for (const n of neighbors) {
-          const nr = row + n.dr;
-          const nc = col + n.dc;
-          if (nr < 0 || nc < 0 || nr >= world.rows || nc >= world.cols) continue;
-          const neighborTile = getTile(nr, nc);
-          if (!neighborTile) continue;
-          const nLevel = getRenderLevel(neighborTile, nr, nc);
-          const diff = currLevel - nLevel;
-          if (diff <= 0) continue;
-
-          const blendPx = Math.max(1, Math.round(maxBlend * angleFrac * Math.min(diff, 3)));
-          const neighborType = getTileType(nr, nc) || 'grass';
-          const pattern = getTileTexturePattern(ctx, neighborType) || getTileTexturePattern(ctx, 'grass');
-          if (!pattern) continue;
-
-          ctx.save();
-          ctx.beginPath();
-          // make control depth relative to blendPx but clamped to tile size
-          const ctrl = Math.max(1, Math.min(Math.round(blendPx * 1.4), Math.floor(Math.min(h / 2, w / 2))));
-          if (n.edge === 'n') {
-            // top edge: straight top, curved inward arc into tile
-            ctx.moveTo(x, y);
-            ctx.lineTo(x + w, y);
-            ctx.quadraticCurveTo(x + w / 2, y + ctrl, x, y);
-          } else if (n.edge === 's') {
-            // bottom edge
-            ctx.moveTo(x, y + h);
-            ctx.lineTo(x + w, y + h);
-            ctx.quadraticCurveTo(x + w / 2, y + h - ctrl, x, y + h);
-          } else if (n.edge === 'w') {
-            // left edge
-            ctx.moveTo(x, y);
-            ctx.lineTo(x, y + h);
-            ctx.quadraticCurveTo(x + ctrl, y + h / 2, x, y);
-          } else if (n.edge === 'e') {
-            // right edge
-            ctx.moveTo(x + w, y);
-            ctx.lineTo(x + w, y + h);
-            ctx.quadraticCurveTo(x + w - ctrl, y + h / 2, x + w, y);
-          }
-          ctx.closePath();
-          ctx.clip();
-          ctx.fillStyle = pattern;
-          // fill a slightly larger rect to ensure pattern covers clipped curved area
-          ctx.fillRect(x - ctrl, y - ctrl, w + ctrl * 2, h + ctrl * 2);
-          ctx.restore();
-        }
-      }
-    }
-  }
+  // NOTE: elevation curve overlays removed — replaced by softened cluster painting
 
   function getTextureSample(basePixels, canvasWidth, canvasHeight, x, y) {
     if (!basePixels || !basePixels.length) return null;
@@ -1927,12 +1958,6 @@
 
     if (texturedBaseCanvas) {
       ctx.drawImage(texturedBaseCanvas, 0, 0);
-      // Apply elevation curve overlays (slopes) before tint/shadow passes
-      try {
-        applyElevationCurves(ctx, cellWidth, cellHeight);
-      } catch (e) {
-        console.warn('applyElevationCurves failed', e);
-      }
     } else {
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
