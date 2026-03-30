@@ -253,8 +253,7 @@
           <button class="menu-btn" id="mainMenuBtn" type="button" aria-haspopup="true" aria-expanded="false" data-i18n="header.mainMenu">Main Menu</button>
           <div id="mainMenuDropdown" class="dropdown-panel hidden" role="menu" aria-labelledby="mainMenuBtn">
             <button class="dropdown-item" id="menuGithubBtn" type="button" role="menuitem" data-i18n="menu.githubPage">Github Page</button>
-            <button class="dropdown-item" id="menuSaveBtn" type="button" role="menuitem" data-i18n="menu.save">Export Map Image</button>
-            <button class="dropdown-item" id="menuExportMapDataBtn" type="button" role="menuitem" data-i18n="menu.exportMapData">Export Map Data</button>
+            <button class="dropdown-item" id="menuSaveBtn" type="button" role="menuitem" data-i18n="menu.save">Export Map JS</button>
             <button class="dropdown-item" id="menuExportMasksBtn" type="button" role="menuitem" data-i18n="menu.exportMasks">Export Tile Masks</button>
             <button class="dropdown-item" id="menuLoadBtn" type="button" role="menuitem" data-i18n="menu.load">Load Map</button>
           </div>
@@ -316,6 +315,10 @@
     <!-- Game Area -->
     <main id="center-area">
       <canvas id="gameCanvas"></canvas>
+
+      <div id="loadingOverlay" class="loading-overlay hidden" aria-hidden="true">
+        <div class="loading-text">LOADING</div>
+      </div>
 
       <button id="mobilePanelsToggle" class="mobile-panels-toggle" type="button" aria-label="Open bottom panels">⌄</button>
 

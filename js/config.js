@@ -7,7 +7,7 @@
 window.Game = window.Game || {};
 
 window.Game.Config = {
-  DEFAULT_SEED: "ISOMETRIC_MAP_28032026",
+  DEFAULT_SEED: "ISOMETRIC_MAP_30032026",
   DEFAULT_COLS: 80,
   DEFAULT_ROWS: 80,
 

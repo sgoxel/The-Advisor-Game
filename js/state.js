@@ -94,7 +94,6 @@ window.Game = window.Game || {};
       menuGithubBtn: null,
       menuSaveBtn: null,
       menuLoadBtn: null,
-      menuExportMapDataBtn: null,
       menuExportMasksBtn: null,
 
       logModal: null,
@@ -120,6 +119,7 @@ window.Game = window.Game || {};
 
       dialogText: null,
       languageSelect: null,
+      loadingOverlay: null,
 
       top: {
         goldValue: null,
@@ -146,6 +146,7 @@ window.Game = window.Game || {};
       needsMinimapRedraw: true,
       needsBackgroundRebuild: true,
       needsBackgroundUpload: true,
+      backgroundUploadBlocked: false,
       backgroundTextureReady: false,
       worldBackgroundCanvas: null,
       textureImages: {},

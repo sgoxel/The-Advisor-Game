@@ -1844,6 +1844,10 @@ window.Game = window.Game || {};
     const world = State.world;
     const render = State.render;
     const UI = window.Game && window.Game.UI;
+    if (render && render.preserveBackground) {
+      if (UI && UI.addLog) UI.addLog('Background rebuild aborted: preserving imported map image.', `Source: ${render.backgroundSource || 'imported'}`);
+      return;
+    }
     if (!world || !world.terrain || !world.terrain.length) return;
 
     render.roadAppearanceCache = new Map();
@@ -1861,6 +1865,7 @@ window.Game = window.Game || {};
     const blockSize = Math.max(1, Math.round(State.camera.blendPixelSize || 4));
     const cellWidth = canvas.width / Math.max(1, world.cols);
     const cellHeight = canvas.height / Math.max(1, world.rows);
+    render.backgroundSource = 'generated-texture';
     const seed = `${world.seed}|blend|${blockSize}|${State.camera.blendStrength || 0}`;
     const texturedBaseCanvas = buildTexturedBaseCanvas(canvas.width, canvas.height, cellWidth, cellHeight);
     const pxPerCell = (canvas.width / Math.max(1, world.cols)).toFixed(1);
@@ -1935,12 +1940,42 @@ window.Game = window.Game || {};
     render.needsBackgroundUpload = true;
     console.info(`Background rebuild finished (${canvas.width}x${canvas.height}).`);
     if (UI && UI.addLog) {
-      UI.addLog(`Terrain rebuild finished: roads layered, background ready.`);
+      UI.addLog(`Terrain rebuild finished: roads layered, background ready.`, `Background source: ${render.backgroundSource || 'generated'}.`);
     }
+  }
+
+  function scaleCanvasToMaxTextureSize(sourceCanvas, maxTextureSize) {
+    if (!sourceCanvas) return null;
+    const width = Math.max(1, Number(sourceCanvas.width) || 1);
+    const height = Math.max(1, Number(sourceCanvas.height) || 1);
+    const limit = Math.max(256, Number(maxTextureSize) || 4096);
+    const largestSide = Math.max(width, height);
+    if (largestSide <= limit) return sourceCanvas;
+
+    const scale = limit / largestSide;
+    const nextWidth = Math.max(1, Math.floor(width * scale));
+    const nextHeight = Math.max(1, Math.floor(height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = nextWidth;
+    canvas.height = nextHeight;
+    const ctx = canvas.getContext("2d", { alpha: false });
+    if (!ctx) return sourceCanvas;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(sourceCanvas, 0, 0, nextWidth, nextHeight);
+    return canvas;
   }
 
   function ensureBackgroundTexture(gl) {
     const render = State.render;
+    const UI = window.Game && window.Game.UI;
+    const maxTextureSize = Number(gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096) || 4096;
+    if (render.backgroundUploadBlocked && !render.needsBackgroundUpload && !render.backgroundTextureReady) {
+      return false;
+    }
+    if (render.needsBackgroundRebuild && render.preserveBackground) {
+      if (UI && UI.addLog) UI.addLog('Background rebuild suppressed to preserve imported map image.', `Source: ${render.backgroundSource || 'imported'}`);
+      render.needsBackgroundRebuild = false;
+    }
     if (render.needsBackgroundRebuild || !render.worldBackgroundCanvas) rebuildBackgroundCanvas();
     if (!render.worldBackgroundCanvas) return false;
     if (!render.needsBackgroundUpload && render.backgroundTextureReady) return true;
@@ -1949,8 +1984,94 @@ window.Game = window.Game || {};
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
     try {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, render.worldBackgroundCanvas);
+      render.backgroundUploadBlocked = false;
+      if (UI && UI.addLog) UI.addLog(`Background texture uploaded from ${render.backgroundSource || 'generated'}.`, `${render.worldBackgroundCanvas.width}x${render.worldBackgroundCanvas.height}`);
     } catch (error) {
       console.warn("Background texture upload failed.", error);
+      const errorMessage = error && error.message ? error.message : String(error);
+      const taintedCanvasError = /tainted canvases may not be loaded/i.test(errorMessage);
+      if (UI && UI.addLog) {
+        UI.addLog(
+          'Background texture upload failed.',
+          `Source: ${render.backgroundSource || 'unknown'}. Canvas: ${render.worldBackgroundCanvas ? `${render.worldBackgroundCanvas.width}x${render.worldBackgroundCanvas.height}` : 'none'}. MAX_TEXTURE_SIZE: ${maxTextureSize}. Error: ${errorMessage}`
+        );
+      }
+
+      if (taintedCanvasError) {
+        if (render.preserveBackground) {
+          if (UI && UI.addLog) {
+            UI.addLog(
+              'Imported map image cannot be used as quad texture in this browser context.',
+              'Browser security marked the imported canvas as tainted. Falling back to generated terrain background.'
+            );
+          }
+          render.preserveBackground = false;
+          render.backgroundUploadBlocked = false;
+          render.needsBackgroundRebuild = true;
+          render.needsBackgroundUpload = true;
+          render.backgroundTextureReady = false;
+          rebuildBackgroundCanvas();
+          if (!render.worldBackgroundCanvas) {
+            render.backgroundUploadBlocked = true;
+            render.needsBackgroundUpload = false;
+            return false;
+          }
+          try {
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, render.worldBackgroundCanvas);
+            render.backgroundUploadBlocked = false;
+            if (UI && UI.addLog) UI.addLog(`Background texture uploaded from ${render.backgroundSource || 'generated'} (security fallback).`, `${render.worldBackgroundCanvas.width}x${render.worldBackgroundCanvas.height}`);
+            render.needsBackgroundUpload = false;
+            render.backgroundTextureReady = true;
+            return true;
+          } catch (securityFallbackError) {
+            if (UI && UI.addLog) {
+              UI.addLog(
+                'Fallback background upload also failed.',
+                securityFallbackError && securityFallbackError.message ? securityFallbackError.message : String(securityFallbackError)
+              );
+            }
+            render.backgroundUploadBlocked = true;
+            render.needsBackgroundUpload = false;
+            return false;
+          }
+        }
+
+        render.backgroundUploadBlocked = true;
+        render.needsBackgroundUpload = false;
+        return false;
+      }
+
+      if (render.worldBackgroundCanvas) {
+        const fittedCanvas = scaleCanvasToMaxTextureSize(render.worldBackgroundCanvas, maxTextureSize);
+        if (fittedCanvas && fittedCanvas !== render.worldBackgroundCanvas) {
+          render.worldBackgroundCanvas = fittedCanvas;
+          render.needsBackgroundRebuild = false;
+          render.needsBackgroundUpload = true;
+          render.backgroundTextureReady = false;
+          if (UI && UI.addLog) {
+            UI.addLog(
+              'Background canvas downscaled for GPU limits.',
+              `New canvas: ${fittedCanvas.width}x${fittedCanvas.height} (MAX_TEXTURE_SIZE=${maxTextureSize}).`
+            );
+          }
+          try {
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, render.worldBackgroundCanvas);
+            render.backgroundUploadBlocked = false;
+            if (UI && UI.addLog) UI.addLog(`Background texture uploaded from ${render.backgroundSource || 'generated'} (downscaled).`, `${render.worldBackgroundCanvas.width}x${render.worldBackgroundCanvas.height}`);
+            render.needsBackgroundUpload = false;
+            render.backgroundTextureReady = true;
+            return true;
+          } catch (downscaleError) {
+            if (UI && UI.addLog) {
+              UI.addLog(
+                'Background upload failed after downscaling.',
+                downscaleError && downscaleError.message ? downscaleError.message : String(downscaleError)
+              );
+            }
+          }
+        }
+      }
+
       render.needsBackgroundRebuild = true;
       render.needsBackgroundUpload = true;
       render.backgroundTextureReady = false;
@@ -1958,8 +2079,12 @@ window.Game = window.Game || {};
       if (!render.worldBackgroundCanvas) return false;
       try {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, render.worldBackgroundCanvas);
+        render.backgroundUploadBlocked = false;
+        if (UI && UI.addLog) UI.addLog(`Background texture uploaded from ${render.backgroundSource || 'generated'} (retry).`, `${render.worldBackgroundCanvas.width}x${render.worldBackgroundCanvas.height}`);
       } catch (retryError) {
         console.warn("Background texture upload retry failed.", retryError);
+        render.backgroundUploadBlocked = true;
+        render.needsBackgroundUpload = false;
         return false;
       }
     }

@@ -21,7 +21,7 @@ window.Game.Locales.tr = {
   },
   "menu": {
     "githubPage": "Github Sayfası",
-    "save": "Harita Görselini Dışa Aktar",
+    "save": "Harita JS Dışa Aktar",
     "load": "Haritayı Yükle",
     "exportMapData": "Harita Verisini Dışa Aktar",
     "exportMasks": "Döşeme Maskelerini Dışa Aktar"
@@ -102,7 +102,7 @@ window.Game.Locales.tr = {
     "dialogChoice": "Diyalog seçimi yapıldı: {{choice}}",
     "worldRebuilt": "Dünya yeniden oluşturuldu. SEED={{seed}}, boyut={{cols}}x{{rows}}",
     "settingsApplied": "Ayarlar uygulandı. Yeni SEED={{seed}}, yeni boyut={{cols}}x{{rows}}",
-    "fileModeWarning": "BİLGİ: Uygulama file:// üzerinden açıldı. Chrome güvenlik politikası nedeniyle DevTools'ta file origin uyarısı görünebilir. En temiz çalışma için local server kullanın.",
+    "fileModeWarning": "BİLGİ: Uygulama file:// üzerinden açıldı. JS harita paketleri görseli veri olarak içerdiği için file-origin doku yükleme sorunlarını azaltır.",
     "appStarted": "Uygulama başlatıldı.",
     "windowResized": "Pencere yeniden boyutlandırıldı.",
     "runtimeError": "HATA: Çalışma zamanı hatası yakalandı.",
@@ -121,7 +121,7 @@ window.Game.Locales.tr = {
     "noStack": "Stack bilgisi yok.",
     "resourceLoadError": "Kaynak yükleme hatası",
     "exportCompleted": "Dışa aktarma tamamlandı. Dosya indirildi: {{filename}}",
-    "exportFailed": "Dışa aktarma başarısız oldu. Görüntü oluşturulamadı.",
+    "exportFailed": "Dışa aktarma başarısız oldu. Dosya oluşturulamadı.",
     "tag": "Etiket"
   },
   "paramValues": {

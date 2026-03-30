@@ -21,7 +21,7 @@ window.Game.Locales.en = {
   },
   "menu": {
     "githubPage": "Github Page",
-    "save": "Export Map Image",
+    "save": "Export Map JS",
     "load": "Load Map",
     "exportMapData": "Export Map Data",
     "exportMasks": "Export Tile Masks"
@@ -102,7 +102,7 @@ window.Game.Locales.en = {
     "dialogChoice": "Dialogue choice made: {{choice}}",
     "worldRebuilt": "World rebuilt. SEED={{seed}}, size={{cols}}x{{rows}}",
     "settingsApplied": "Settings applied. New SEED={{seed}}, new size={{cols}}x{{rows}}",
-    "fileModeWarning": "INFO: The application was opened through file://. Due to Chrome security policies, you may see a file origin warning in DevTools. For the cleanest execution, use a local server.",
+    "fileModeWarning": "INFO: The application was opened through file://. JS map bundles include image data to avoid file-origin texture loading issues.",
     "appStarted": "Application started.",
     "windowResized": "Window resized.",
     "runtimeError": "ERROR: Runtime error captured.",
@@ -121,7 +121,7 @@ window.Game.Locales.en = {
     "noStack": "No stack information.",
     "resourceLoadError": "Resource loading error",
     "exportCompleted": "Export completed. File downloaded: {{filename}}",
-    "exportFailed": "Export failed. The image could not be created.",
+    "exportFailed": "Export failed. The file could not be created.",
     "tag": "Tag"
   },
   "paramValues": {
