@@ -1,64 +1,27 @@
 /* ROAD_PATCH_V2: diagonal connectivity + color fix */
-/*
-  FILE PURPOSE:
-  Render the rectangular game world with WebGL using true 3D perspective projection.
-*/
 
-window.Game = window.Game || {};
+(function(){
 
-(function () {
-  const State = window.Game.State;
-  const Config = window.Game.Config;
-  const RNG = window.Game.RNG;
+  // Bind common globals used throughout this renderer. Other modules
+  // typically do `const State = window.Game.State` at their top-level;
+  // the renderer is a large IIFE and needs local bindings too.
+  window.Game = window.Game || {};
+  const Config = window.Game && window.Game.Config;
+  const State = window.Game && window.Game.State;
+  const RNG = window.Game && window.Game.RNG;
 
-  const COLOR_VERTEX_SHADER_SOURCE = `
-    attribute vec3 a_position;
-    uniform mat4 u_matrix;
-    void main() {
-      gl_Position = u_matrix * vec4(a_position, 1.0);
-    }
-  `;
-
-  const COLOR_FRAGMENT_SHADER_SOURCE = `
-    precision mediump float;
-    uniform vec4 u_color;
-    void main() {
-      gl_FragColor = u_color;
-    }
-  `;
-
-  const TEXTURE_VERTEX_SHADER_SOURCE = `
-    attribute vec3 a_position;
-    attribute vec2 a_texCoord;
-    uniform mat4 u_matrix;
-    varying vec2 v_texCoord;
-    void main() {
-      gl_Position = u_matrix * vec4(a_position, 1.0);
-      v_texCoord = a_texCoord;
-    }
-  `;
-
-  const TEXTURE_FRAGMENT_SHADER_SOURCE = `
-    precision mediump float;
-    uniform sampler2D u_texture;
-    varying vec2 v_texCoord;
-    void main() {
-      gl_FragColor = texture2D(u_texture, v_texCoord);
-    }
-  `;
-
-  const EPSILON = 0.000001;
-  const WORLD_SURFACE_Y = 0.0;
-  const GRID_OVERLAY_Y = 0.25;
-  const MARKER_Y = 1.15;
+  // Small numeric and transform constants used by the renderer.
+  const EPSILON = 1e-6;
   const WORLD_ROTATION_DEGREES = 45;
+  const WORLD_SURFACE_Y = 0;
+  const GRID_OVERLAY_Y = WORLD_SURFACE_Y + 0.02;
+  const MARKER_Y = WORLD_SURFACE_Y + 0.02;
 
-  function markDirty(worldDirty, minimapDirty) {
-    if (worldDirty !== false) {
-      State.render.needsWorldRedraw = true;
-    }
-    if (minimapDirty !== false) State.render.needsMinimapRedraw = true;
-  }
+  // Minimal WebGL shader sources required by the renderer's programs.
+  const COLOR_VERTEX_SHADER_SOURCE = `attribute vec3 a_position; uniform mat4 u_matrix; void main() { gl_Position = u_matrix * vec4(a_position, 1.0); }`;
+  const COLOR_FRAGMENT_SHADER_SOURCE = `precision mediump float; uniform vec4 u_color; void main() { gl_FragColor = u_color; }`;
+  const TEXTURE_VERTEX_SHADER_SOURCE = `attribute vec3 a_position; attribute vec2 a_texCoord; uniform mat4 u_matrix; varying vec2 v_texCoord; void main() { v_texCoord = a_texCoord; gl_Position = u_matrix * vec4(a_position, 1.0); }`;
+  const TEXTURE_FRAGMENT_SHADER_SOURCE = `precision mediump float; varying vec2 v_texCoord; uniform sampler2D u_texture; void main() { gl_FragColor = texture2D(u_texture, v_texCoord); }`;
 
   function createShader(gl, type, source) {
     const shader = gl.createShader(type);
@@ -500,6 +463,12 @@ window.Game = window.Game || {};
 
   function updateCameraFollow() {
     if (State.camera.followPlayer && State.world.player && State.world.player.moving) centerCamera();
+  }
+
+  function markDirty(worldDirty = true, minimapDirty = true) {
+    const render = State.render || {};
+    if (worldDirty !== false) render.needsWorldRedraw = true;
+    if (minimapDirty !== false) render.needsMinimapRedraw = true;
   }
 
   function resizeCanvas() {
@@ -1746,6 +1715,86 @@ window.Game = window.Game || {};
     return textureCanvas;
   }
 
+  // Apply elevation curve overlays: for tiles that are higher than neighbors,
+  // draw a small sloped edge filled with the lower neighbor's texture to
+  // visually suggest a curved slope. The extent of the overlay is driven by
+  // the `State.camera.curveAngle` setting (0-90 degrees).
+  function applyElevationCurves(ctx, cellWidth, cellHeight) {
+    const world = State.world;
+    if (!world || !world.terrain) return;
+    const angleDeg = Math.max(0, Math.min(Number(Config.MAX_CURVE_ANGLE || 90), Number(State.camera.curveAngle || Config.DEFAULT_CURVE_ANGLE || 0)));
+    if (angleDeg <= 0) return;
+    const angleFrac = angleDeg / 90;
+    const maxBlend = Math.max(cellWidth, cellHeight) * 0.5;
+
+    for (let row = 0; row < world.rows; row++) {
+      for (let col = 0; col < world.cols; col++) {
+        const tile = getTile(row, col);
+        if (!tile) continue;
+        const currLevel = getRenderLevel(tile, row, col);
+        const x = Math.floor(col * cellWidth);
+        const y = Math.floor(row * cellHeight);
+        const w = Math.max(1, Math.ceil((col + 1) * cellWidth) - x);
+        const h = Math.max(1, Math.ceil((row + 1) * cellHeight) - y);
+
+        const neighbors = [
+          { dr: -1, dc: 0, edge: 'n' },
+          { dr: 1, dc: 0, edge: 's' },
+          { dr: 0, dc: -1, edge: 'w' },
+          { dr: 0, dc: 1, edge: 'e' }
+        ];
+
+        for (const n of neighbors) {
+          const nr = row + n.dr;
+          const nc = col + n.dc;
+          if (nr < 0 || nc < 0 || nr >= world.rows || nc >= world.cols) continue;
+          const neighborTile = getTile(nr, nc);
+          if (!neighborTile) continue;
+          const nLevel = getRenderLevel(neighborTile, nr, nc);
+          const diff = currLevel - nLevel;
+          if (diff <= 0) continue;
+
+          const blendPx = Math.max(1, Math.round(maxBlend * angleFrac * Math.min(diff, 3)));
+          const neighborType = getTileType(nr, nc) || 'grass';
+          const pattern = getTileTexturePattern(ctx, neighborType) || getTileTexturePattern(ctx, 'grass');
+          if (!pattern) continue;
+
+          ctx.save();
+          ctx.beginPath();
+          // make control depth relative to blendPx but clamped to tile size
+          const ctrl = Math.max(1, Math.min(Math.round(blendPx * 1.4), Math.floor(Math.min(h / 2, w / 2))));
+          if (n.edge === 'n') {
+            // top edge: straight top, curved inward arc into tile
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + w, y);
+            ctx.quadraticCurveTo(x + w / 2, y + ctrl, x, y);
+          } else if (n.edge === 's') {
+            // bottom edge
+            ctx.moveTo(x, y + h);
+            ctx.lineTo(x + w, y + h);
+            ctx.quadraticCurveTo(x + w / 2, y + h - ctrl, x, y + h);
+          } else if (n.edge === 'w') {
+            // left edge
+            ctx.moveTo(x, y);
+            ctx.lineTo(x, y + h);
+            ctx.quadraticCurveTo(x + ctrl, y + h / 2, x, y);
+          } else if (n.edge === 'e') {
+            // right edge
+            ctx.moveTo(x + w, y);
+            ctx.lineTo(x + w, y + h);
+            ctx.quadraticCurveTo(x + w - ctrl, y + h / 2, x + w, y);
+          }
+          ctx.closePath();
+          ctx.clip();
+          ctx.fillStyle = pattern;
+          // fill a slightly larger rect to ensure pattern covers clipped curved area
+          ctx.fillRect(x - ctrl, y - ctrl, w + ctrl * 2, h + ctrl * 2);
+          ctx.restore();
+        }
+      }
+    }
+  }
+
   function getTextureSample(basePixels, canvasWidth, canvasHeight, x, y) {
     if (!basePixels || !basePixels.length) return null;
     const sx = Math.max(0, Math.min(canvasWidth - 1, Math.round(x)));
@@ -1878,6 +1927,12 @@ window.Game = window.Game || {};
 
     if (texturedBaseCanvas) {
       ctx.drawImage(texturedBaseCanvas, 0, 0);
+      // Apply elevation curve overlays (slopes) before tint/shadow passes
+      try {
+        applyElevationCurves(ctx, cellWidth, cellHeight);
+      } catch (e) {
+        console.warn('applyElevationCurves failed', e);
+      }
     } else {
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
