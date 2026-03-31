@@ -122,13 +122,21 @@ window.Game = window.Game || {};
     drawViewportFrame(layout);
 
     const playerPos = gridToMinimap(world.player.row, world.player.col, layout);
+    // Arcs removed: draw a small diamond for the player marker instead of a circle.
+    const pHalfW = Math.max(2, layout.miniHalfW * 0.8);
+    const pHalfH = Math.max(1, layout.miniHalfH * 0.45);
+    drawDiamond(ctx, playerPos.x, playerPos.y, pHalfW, pHalfH, '#f4f7fb');
+    ctx.save();
     ctx.beginPath();
-    ctx.arc(playerPos.x, playerPos.y, Math.max(2, layout.miniHalfH * 0.9), 0, Math.PI * 2);
-    ctx.fillStyle = '#f4f7fb';
-    ctx.fill();
+    ctx.moveTo(playerPos.x, playerPos.y - pHalfH);
+    ctx.lineTo(playerPos.x + pHalfW, playerPos.y);
+    ctx.lineTo(playerPos.x, playerPos.y + pHalfH);
+    ctx.lineTo(playerPos.x - pHalfW, playerPos.y);
+    ctx.closePath();
     ctx.strokeStyle = '#11151c';
     ctx.lineWidth = 1;
     ctx.stroke();
+    ctx.restore();
 
     State.render.needsMinimapRedraw = false;
   }

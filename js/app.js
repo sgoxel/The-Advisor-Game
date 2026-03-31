@@ -966,11 +966,7 @@ window.Game = window.Game || {};
       Config.MIN_NOISE_GRID_DIVISIONS,
       Config.MAX_NOISE_GRID_DIVISIONS
     );
-    const curveAngle = Utils.clamp(
-      Number(dom.curveAngleInput && dom.curveAngleInput.value) || Config.DEFAULT_CURVE_ANGLE,
-      Config.MIN_CURVE_ANGLE,
-      Config.MAX_CURVE_ANGLE
-    );
+    
     const showGrid = !!(dom.showGridInput && dom.showGridInput.checked);
     const reliefEnabled = !!(dom.reliefEnabledInput && dom.reliefEnabledInput.checked);
     const sunAzimuth = Utils.clamp(
@@ -1003,7 +999,6 @@ window.Game = window.Game || {};
     State.camera.depthStrength = depthStrength;
     State.camera.blendPixelSize = blendPixelSize;
     State.camera.blendStrength = blendStrength;
-    State.camera.curveAngle = curveAngle;
     State.camera.noiseGridDivisions = noiseGridDivisions;
     State.camera.showGrid = showGrid;
     State.camera.reliefEnabled = reliefEnabled;

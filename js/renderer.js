@@ -1295,11 +1295,10 @@
   }
 
   function drawRoadDisc2D(ctx, centerX, centerY, radius, fillStyle) {
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-    ctx.closePath();
+    // Arcs removed: draw a filled square as a replacement for a disc.
+    const size = Math.max(1, Math.round(radius * 2));
     ctx.fillStyle = fillStyle;
-    ctx.fill();
+    ctx.fillRect(Math.round(centerX - radius), Math.round(centerY - radius), size, size);
   }
 
   function drawRoadCapsule2D(ctx, x1, y1, x2, y2, radius, fillStyle) {
@@ -1715,84 +1714,10 @@
     return textureCanvas;
   }
 
-  // Apply elevation curve overlays: for tiles that are higher than neighbors,
-  // draw a small sloped edge filled with the lower neighbor's texture to
-  // visually suggest a curved slope. The extent of the overlay is driven by
-  // the `State.camera.curveAngle` setting (0-90 degrees).
-  function applyElevationCurves(ctx, cellWidth, cellHeight) {
-    const world = State.world;
-    if (!world || !world.terrain) return;
-    const angleDeg = Math.max(0, Math.min(Number(Config.MAX_CURVE_ANGLE || 90), Number(State.camera.curveAngle || Config.DEFAULT_CURVE_ANGLE || 0)));
-    if (angleDeg <= 0) return;
-    const angleFrac = angleDeg / 90;
-    const maxBlend = Math.max(cellWidth, cellHeight) * 0.5;
-
-    for (let row = 0; row < world.rows; row++) {
-      for (let col = 0; col < world.cols; col++) {
-        const tile = getTile(row, col);
-        if (!tile) continue;
-        const currLevel = getRenderLevel(tile, row, col);
-        const x = Math.floor(col * cellWidth);
-        const y = Math.floor(row * cellHeight);
-        const w = Math.max(1, Math.ceil((col + 1) * cellWidth) - x);
-        const h = Math.max(1, Math.ceil((row + 1) * cellHeight) - y);
-
-        const neighbors = [
-          { dr: -1, dc: 0, edge: 'n' },
-          { dr: 1, dc: 0, edge: 's' },
-          { dr: 0, dc: -1, edge: 'w' },
-          { dr: 0, dc: 1, edge: 'e' }
-        ];
-
-        for (const n of neighbors) {
-          const nr = row + n.dr;
-          const nc = col + n.dc;
-          if (nr < 0 || nc < 0 || nr >= world.rows || nc >= world.cols) continue;
-          const neighborTile = getTile(nr, nc);
-          if (!neighborTile) continue;
-          const nLevel = getRenderLevel(neighborTile, nr, nc);
-          const diff = currLevel - nLevel;
-          if (diff <= 0) continue;
-
-          const blendPx = Math.max(1, Math.round(maxBlend * angleFrac * Math.min(diff, 3)));
-          const neighborType = getTileType(nr, nc) || 'grass';
-          const pattern = getTileTexturePattern(ctx, neighborType) || getTileTexturePattern(ctx, 'grass');
-          if (!pattern) continue;
-
-          ctx.save();
-          ctx.beginPath();
-          // make control depth relative to blendPx but clamped to tile size
-          const ctrl = Math.max(1, Math.min(Math.round(blendPx * 1.4), Math.floor(Math.min(h / 2, w / 2))));
-          if (n.edge === 'n') {
-            // top edge: straight top, curved inward arc into tile
-            ctx.moveTo(x, y);
-            ctx.lineTo(x + w, y);
-            ctx.quadraticCurveTo(x + w / 2, y + ctrl, x, y);
-          } else if (n.edge === 's') {
-            // bottom edge
-            ctx.moveTo(x, y + h);
-            ctx.lineTo(x + w, y + h);
-            ctx.quadraticCurveTo(x + w / 2, y + h - ctrl, x, y + h);
-          } else if (n.edge === 'w') {
-            // left edge
-            ctx.moveTo(x, y);
-            ctx.lineTo(x, y + h);
-            ctx.quadraticCurveTo(x + ctrl, y + h / 2, x, y);
-          } else if (n.edge === 'e') {
-            // right edge
-            ctx.moveTo(x + w, y);
-            ctx.lineTo(x + w, y + h);
-            ctx.quadraticCurveTo(x + w - ctrl, y + h / 2, x + w, y);
-          }
-          ctx.closePath();
-          ctx.clip();
-          ctx.fillStyle = pattern;
-          // fill a slightly larger rect to ensure pattern covers clipped curved area
-          ctx.fillRect(x - ctrl, y - ctrl, w + ctrl * 2, h + ctrl * 2);
-          ctx.restore();
-        }
-      }
-    }
+  // Elevation overlays disabled.
+  function applyElevationOverlays(/* ctx, cellWidth, cellHeight */) {
+    // No-op to keep compatibility; elevation overlays disabled.
+    return;
   }
 
   function getTextureSample(basePixels, canvasWidth, canvasHeight, x, y) {
@@ -1927,11 +1852,11 @@
 
     if (texturedBaseCanvas) {
       ctx.drawImage(texturedBaseCanvas, 0, 0);
-      // Apply elevation curve overlays (slopes) before tint/shadow passes
+      // Apply elevation overlays (slopes) before tint/shadow passes
       try {
-        applyElevationCurves(ctx, cellWidth, cellHeight);
+        applyElevationOverlays(ctx, cellWidth, cellHeight);
       } catch (e) {
-        console.warn('applyElevationCurves failed', e);
+        console.warn('applyElevationOverlays failed', e);
       }
     } else {
       ctx.fillStyle = "#000";

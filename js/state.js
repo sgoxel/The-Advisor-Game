@@ -61,7 +61,7 @@ window.Game = window.Game || {};
       showGrid: Config.DEFAULT_SHOW_GRID,
       blendPixelSize: Config.DEFAULT_BLEND_PIXEL_SIZE,
       blendStrength: Config.DEFAULT_BLEND_STRENGTH,
-      curveAngle: Config.DEFAULT_CURVE_ANGLE,
+      
       noiseGridDivisions: Config.DEFAULT_NOISE_GRID_DIVISIONS,
       reliefEnabled: Config.DEFAULT_RELIEF_ENABLED,
       sunAzimuth: Config.DEFAULT_SUN_AZIMUTH,
@@ -108,7 +108,7 @@ window.Game = window.Game || {};
       cameraPitchInput: null,
       depthStrengthInput: null,
       blendPixelSizeInput: null,
-      curveAngleInput: null,
+      
       blendStrengthInput: null,
       noiseGridDivisionsInput: null,
       showGridInput: null,
