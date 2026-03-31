@@ -116,6 +116,44 @@ window.Game = window.Game || {};
     return true;
   }
 
+  // Paint a wider river swath centered at (row,col).
+  // `width` is a coarse thickness selector (2 or 4). We paint a diamond
+  // (Manhattan radius) around the center, skipping reserved cells.
+  function paintRiverSwath(grid, reserved, row, col, width) {
+    const radius = Math.floor(width / 2);
+    let changed = 0;
+    for (let dr = -radius; dr <= radius; dr++) {
+      for (let dc = -radius; dc <= radius; dc++) {
+        if (Math.abs(dr) + Math.abs(dc) > radius) continue;
+        const nr = row + dr;
+        const nc = col + dc;
+        if (!inBounds(nr, nc) || isReserved(reserved, nr, nc)) continue;
+        const tile = tileAt(grid, nr, nc);
+        if (!tile) continue;
+        // Overwrite any blocking tile (forest/mountain/lake/river) so the
+        // river actually cuts through. Reserved tiles are already skipped.
+        if (paintRiverTile(grid, nr, nc)) changed += 1;
+      }
+    }
+    return changed;
+  }
+
+  // General helper: set tile at (r,c) to `type` if not reserved.
+  // Used by multiple post-processing steps. Returns true if changed.
+  function paintTileAsType(grid, reserved, r, c, type) {
+    const t = tileAt(grid, r, c);
+    if (!t) return false;
+    if (isReserved(reserved, r, c)) return false;
+    t.type = type;
+    t.elevation = type === "mountain" ? Math.max(t.elevation || 0, 2.8) : 0;
+    t.tags = new Set();
+    if (type === "forest") { t.tags.add("forest"); t.tags.add("blocked"); }
+    else if (type === "mountain") { t.tags.add("mountain"); t.tags.add("mountainCore"); t.tags.add("blocked"); }
+    else if (type === "lake") { t.tags.add("lake"); t.tags.add("blocked"); }
+    else if (type === "river") { t.tags.add("stream"); t.tags.add("blocked"); }
+    return true;
+  }
+
   function tileIsBlocking(tile) {
     if (!tile) return true;
     if (tile.type === "mountain" || tile.type === "lake" || tile.type === "river" || tile.type === "forest") return true;
@@ -579,14 +617,14 @@ window.Game = window.Game || {};
     for (let streamIndex = 0; streamIndex < desiredStreams; streamIndex++) {
       let row = Math.floor(rng() * world.rows);
       let col = rng() > 0.5 ? 0 : world.cols - 1;
+      // Choose stream thickness per-stream: thin (2) or thick (4) tiles.
+      const streamWidth = rng() > 0.5 ? 4 : 2;
       const length = Math.max(world.rows, world.cols);
       for (let step = 0; step < length && blocked < targetCount; step++) {
         if (!inBounds(row, col)) break;
         if (!isReserved(reserved, row, col)) {
-          const tile = tileAt(grid, row, col);
-          if (tile && !tileIsBlocking(tile)) {
-            if (paintRiverTile(grid, row, col)) blocked += 1;
-          }
+          const painted = paintRiverSwath(grid, reserved, row, col, streamWidth);
+          if (painted) blocked += painted;
         }
         if (rng() > 0.55) {
           row += rng() > 0.5 ? 1 : -1;
@@ -626,12 +664,10 @@ window.Game = window.Game || {};
 
   function countBlockingNeighbors(grid, row, col) {
     let count = 0;
-    for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
-      for (let colOffset = -1; colOffset <= 1; colOffset++) {
-        if (rowOffset === 0 && colOffset === 0) continue;
-        const neighbor = tileAt(grid, row + rowOffset, col + colOffset);
-        if (tileIsBlocking(neighbor)) count += 1;
-      }
+    const orth = [[-1,0],[1,0],[0,-1],[0,1]];
+    for (const [dr, dc] of orth) {
+      const neighbor = tileAt(grid, row + dr, col + dc);
+      if (tileIsBlocking(neighbor)) count += 1;
     }
     return count;
   }
@@ -700,6 +736,257 @@ window.Game = window.Game || {};
     }
 
     return blockedCount;
+  }
+
+  // Enforce blocking cluster rules:
+  // - Minimum cluster size (no singletons). Small clusters will be grown when possible or removed.
+  // - Maximum pairwise interference: limit adjacency between two different block clusters.
+  function enforceBlockingClusterRules(grid, reserved, seed, minClusterSize, maxInterference) {
+    const world = State.world;
+    const rows = world.rows;
+    const cols = world.cols;
+    const blockingTypes = new Set(["mountain", "lake", "river", "forest"]);
+
+    function key(r, c) { return r + "," + c; }
+
+    function findClusters() {
+      const visited = Array.from({ length: rows }, () => Array(cols).fill(false));
+      const clusters = [];
+      const orth = [[-1,0],[1,0],[0,-1],[0,1]];
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (visited[r][c]) continue;
+          const tile = tileAt(grid, r, c);
+          if (!tile || !blockingTypes.has(tile.type)) { visited[r][c] = true; continue; }
+          const type = tile.type;
+          const queue = [{ r, c }];
+          visited[r][c] = true;
+          const tiles = [];
+          while (queue.length) {
+            const p = queue.shift();
+            tiles.push({ row: p.r, col: p.c });
+            for (const [dr, dc] of orth) {
+              const nr = p.r + dr;
+              const nc = p.c + dc;
+              if (nr < 0 || nc < 0 || nr >= rows || nc >= cols) continue;
+              if (visited[nr][nc]) continue;
+              const nt = tileAt(grid, nr, nc);
+              if (!nt || nt.type !== type) { visited[nr][nc] = true; continue; }
+              visited[nr][nc] = true;
+              queue.push({ r: nr, c: nc });
+            }
+          }
+          clusters.push({ type, tiles, size: tiles.length });
+        }
+      }
+      return clusters;
+    }
+
+    function convertToGrass(r, c) {
+      const t = tileAt(grid, r, c);
+      if (!t) return false;
+      if (isReserved(reserved, r, c)) return false;
+      t.type = "grass";
+      t.elevation = 0;
+      t.tags = new Set();
+      return true;
+    }
+
+    
+
+
+    function growCluster(cluster, seed, minSize) {
+      if (cluster.size >= minSize) return true;
+      const rngSeed = `${seed}|grow|${cluster.type}`;
+      const candidates = new Set();
+      const orth = [[-1,0],[1,0],[0,-1],[0,1]];
+      for (const t of cluster.tiles) {
+        for (const [dr, dc] of orth) {
+          const nr = t.row + dr, nc = t.col + dc;
+          if (nr < 0 || nc < 0 || nr >= rows || nc >= cols) continue;
+          const nt = tileAt(grid, nr, nc);
+          if (!nt || blockingTypes.has(nt.type) || isReserved(reserved, nr, nc)) continue;
+          candidates.add(key(nr, nc));
+        }
+      }
+      const candArray = Array.from(candidates).map((k) => { const [r,c]=k.split(',').map(Number); return { r, c, score: RNG.hashNoise(rngSeed, r, c, 'grow') }; });
+      candArray.sort((a,b)=>b.score-a.score);
+      let added = 0;
+      for (const cand of candArray) {
+        if (cluster.size + added >= minSize) break;
+        if (paintTileAsType(grid, reserved, cand.r, cand.c, cluster.type)) {
+          added++;
+        }
+      }
+      return (cluster.size + added) >= minSize;
+    }
+
+    // Trim adjacency between clusters exceeding allowed interference
+    function trimInterference(clusters) {
+      const keyToCluster = new Map();
+      for (let i = 0; i < clusters.length; i++) {
+        const cl = clusters[i];
+        for (const t of cl.tiles) keyToCluster.set(key(t.row, t.col), i);
+      }
+
+      const pairs = new Map();
+      const orth = [[-1,0],[1,0],[0,-1],[0,1]];
+      for (let i = 0; i < clusters.length; i++) {
+        const cl = clusters[i];
+        for (const t of cl.tiles) {
+          for (const [dr, dc] of orth) {
+            const nr = t.row + dr, nc = t.col + dc;
+            const otherIdx = keyToCluster.get(key(nr, nc));
+            if (otherIdx === undefined || otherIdx === i) continue;
+            const a = Math.min(i, otherIdx), b = Math.max(i, otherIdx);
+            const pk = `${a}|${b}`;
+            pairs.set(pk, (pairs.get(pk) || 0) + 1);
+          }
+        }
+      }
+
+      const toTrim = [];
+      for (const [pk, count] of pairs.entries()) {
+        const [a, b] = pk.split("|").map(Number);
+        const ca = clusters[a], cb = clusters[b];
+        if (!ca || !cb) continue;
+        const ia = count / ca.size;
+        const ib = count / cb.size;
+        if (ia > maxInterference || ib > maxInterference) {
+          const smallIdx = ca.size <= cb.size ? a : b;
+          toTrim.push({ smallIdx, otherIdx: smallIdx === a ? b : a, count });
+        }
+      }
+
+      if (!toTrim.length) return false;
+
+      for (const job of toTrim) {
+        const small = clusters[job.smallIdx];
+        const other = clusters[job.otherIdx];
+        const border = [];
+        const otherSet = new Set(other.tiles.map((t) => key(t.row, t.col)));
+        for (const t of small.tiles) {
+          let adjacentToOther = false;
+          const orth = [[-1,0],[1,0],[0,-1],[0,1]];
+          for (const [dr, dc] of orth) {
+            if (adjacentToOther) break;
+            const nr = t.row + dr, nc = t.col + dc;
+            if (otherSet.has(key(nr, nc))) { adjacentToOther = true; }
+          }
+          if (adjacentToOther) border.push({ row: t.row, col: t.col });
+        }
+        let removals = Math.max(0, Math.ceil(job.count - maxInterference * small.size));
+        border.sort((a, b) => {
+          const aConn = countBlockingNeighbors(grid, a.row, a.col);
+          const bConn = countBlockingNeighbors(grid, b.row, b.col);
+          return aConn - bConn;
+        });
+        for (const tile of border) {
+          if (removals <= 0) break;
+          if (small.size <= minClusterSize) break;
+          if (convertToGrass(tile.row, tile.col)) {
+            removals--;
+            small.size--;
+          }
+        }
+      }
+      return true;
+    }
+
+    // Enforcement workflow
+    let clusters = findClusters();
+    for (const cl of clusters) {
+      if (cl.size < minClusterSize) {
+        growCluster(cl, seed, minClusterSize);
+      }
+    }
+    let iterations = 0;
+    while (iterations < 6) {
+      clusters = findClusters();
+      const changed = trimInterference(clusters);
+      if (!changed) break;
+      iterations++;
+    }
+    clusters = findClusters();
+    for (const cl of clusters) {
+      if (cl.size < minClusterSize) {
+        for (const t of cl.tiles) convertToGrass(t.row, t.col);
+      }
+    }
+  }
+
+  // Remove any remaining single-tile blocking clusters by converting
+  // the singleton to one of its neighbor tile types (prefer the most
+  // common non-reserved neighbor). Falls back to grass when no
+  // suitable neighbor exists. This applies to all blocking types.
+  function removeSingletonBlockingClusters(grid, reserved, seed) {
+    const world = State.world;
+    const rows = world.rows;
+    const cols = world.cols;
+    const blockingTypes = new Set(["mountain", "lake", "river", "forest"]);
+    const visited = Array.from({ length: rows }, () => Array(cols).fill(false));
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (visited[r][c]) continue;
+        const t = tileAt(grid, r, c);
+        if (!t || !blockingTypes.has(t.type)) { visited[r][c] = true; continue; }
+
+        // Flood-fill cluster of the same blocking type
+        const queue = [{ r, c }];
+        visited[r][c] = true;
+        const cluster = [];
+        while (queue.length) {
+          const p = queue.shift();
+          cluster.push(p);
+          const orth = [[-1,0],[1,0],[0,-1],[0,1]];
+          for (const [dr, dc] of orth) {
+            const nr = p.r + dr;
+            const nc = p.c + dc;
+            if (nr < 0 || nc < 0 || nr >= rows || nc >= cols) continue;
+            if (visited[nr][nc]) continue;
+            const nt = tileAt(grid, nr, nc);
+            if (!nt || nt.type !== t.type) { visited[nr][nc] = true; continue; }
+            visited[nr][nc] = true;
+            queue.push({ r: nr, c: nc });
+          }
+        }
+
+        if (cluster.length !== 1) continue;
+        const single = cluster[0];
+
+        // Collect neighbor type counts, skip reserved and settlement/road types
+        const counts = Object.create(null);
+        const orth = [[-1,0],[1,0],[0,-1],[0,1]];
+        for (const [dr, dc] of orth) {
+          const nr = single.r + dr;
+          const nc = single.c + dc;
+          if (!inBounds(nr, nc) || isReserved(reserved, nr, nc)) continue;
+          const nt = tileAt(grid, nr, nc);
+          if (!nt) continue;
+          if (nt.type === "road" || nt.type === "settlement") continue;
+          counts[nt.type] = (counts[nt.type] || 0) + 1;
+        }
+
+        let chosen = null;
+        const types = Object.keys(counts);
+        if (types.length) {
+          types.sort((a, b) => counts[b] - counts[a]);
+          // If tie, pick deterministically using hash noise
+          const topCount = counts[types[0]];
+          const tied = types.filter((t) => counts[t] === topCount);
+          if (tied.length === 1) chosen = tied[0];
+          else {
+            const idx = Math.floor(Math.abs(RNG.hashNoise(seed, single.r, single.c, "singletonPick")) * tied.length) % tied.length;
+            chosen = tied[idx];
+          }
+        } else {
+          chosen = "grass";
+        }
+
+        paintTileAsType(grid, reserved, single.r, single.c, chosen);
+      }
+    }
   }
 
   function addBaseSurface(grid, params, seed) {
@@ -878,7 +1165,124 @@ window.Game = window.Game || {};
     blockedCount += addForests(grid, reserved, seed, Math.max(0, blockerTargetCount - blockedCount));
     blockedCount = ensureBlockedCoverage(grid, reserved, seed, 30, 60);
 
+    // Enforce cluster rules (minimum cluster size, max adjacency/interference)
+    enforceBlockingClusterRules(grid, reserved, seed, 4, 0.25);
+    // Remove any remaining single-tile blocking clusters
+    removeSingletonBlockingClusters(grid, reserved, seed);
+
     addBaseSurface(grid, params, seed);
+
+    // Final cleanup: remove any remaining blocking clusters smaller than
+    // `minClusterSize` using orthogonal connectivity. This runs after the
+    // base surface is applied to catch any small clusters introduced later.
+    function finalRemoveSmallBlockingClusters(grid, reserved, seed, minClusterSize) {
+      const world = State.world;
+      const rows = world.rows;
+      const cols = world.cols;
+      const blockingTypes = new Set(["mountain", "lake", "river", "forest"]);
+      const orth = [[-1,0],[1,0],[0,-1],[0,1]];
+
+      let changedAny = false;
+      const visited = Array.from({ length: rows }, () => Array(cols).fill(false));
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (visited[r][c]) continue;
+          const t = tileAt(grid, r, c);
+          if (!t || !blockingTypes.has(t.type)) { visited[r][c] = true; continue; }
+
+          // Flood-fill orthogonally
+          const queue = [{ r, c }];
+          visited[r][c] = true;
+          const cluster = [];
+          while (queue.length) {
+            const p = queue.shift();
+            cluster.push(p);
+            for (const [dr, dc] of orth) {
+              const nr = p.r + dr, nc = p.c + dc;
+              if (nr < 0 || nc < 0 || nr >= rows || nc >= cols) continue;
+              if (visited[nr][nc]) continue;
+              const nt = tileAt(grid, nr, nc);
+              if (!nt || nt.type !== t.type) { visited[nr][nc] = true; continue; }
+              visited[nr][nc] = true;
+              queue.push({ r: nr, c: nc });
+            }
+          }
+
+          if (cluster.length >= minClusterSize) continue;
+
+          // Try to replace cluster tiles with the most common orthogonal neighbor type
+          for (const cell of cluster) {
+            const counts = Object.create(null);
+            for (const [dr, dc] of orth) {
+              const nr = cell.r + dr, nc = cell.c + dc;
+              if (!inBounds(nr, nc) || isReserved(reserved, nr, nc)) continue;
+              const nt = tileAt(grid, nr, nc);
+              if (!nt) continue;
+              const ntType = nt.type;
+              if (!ntType || ntType === 'road' || ntType === 'settlement') continue;
+              counts[ntType] = (counts[ntType] || 0) + 1;
+            }
+
+            let chosen = null;
+            const types = Object.keys(counts);
+            if (types.length) {
+              types.sort((a, b) => counts[b] - counts[a]);
+              const topCount = counts[types[0]];
+              const tied = types.filter((x) => counts[x] === topCount);
+              if (tied.length === 1) chosen = tied[0];
+              else {
+                const idx = Math.floor(Math.abs(RNG.hashNoise(seed, cell.r, cell.c, 'finalPick')) * tied.length) % tied.length;
+                chosen = tied[idx];
+              }
+            }
+
+            if (chosen) {
+              if (paintTileAsType(grid, reserved, cell.r, cell.c, chosen)) changedAny = true;
+            } else {
+              if (convertToGrass(cell.r, cell.c)) changedAny = true;
+            }
+          }
+        }
+      }
+
+      return changedAny;
+    }
+
+
+    // Strict final pass: remove all orthogonal-singleton forests
+    function removeStrictForestSingletons(grid, reserved) {
+      const world = State.world;
+      const rows = world.rows;
+      const cols = world.cols;
+      const orth = [[-1,0],[1,0],[0,-1],[0,1]];
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const t = tileAt(grid, r, c);
+          if (!t || t.type !== "forest" || isReserved(reserved, r, c)) continue;
+          // Count orthogonal forest neighbors
+          let forestNeighbors = 0, mountainNeighbors = 0;
+          for (const [dr, dc] of orth) {
+            const nr = r + dr, nc = c + dc;
+            const nt = tileAt(grid, nr, nc);
+            if (!nt) continue;
+            if (nt.type === "forest") forestNeighbors++;
+            if (nt.type === "mountain") mountainNeighbors++;
+          }
+          if (forestNeighbors === 0) {
+            if (mountainNeighbors > 0) {
+              paintTileAsType(grid, reserved, r, c, "mountain");
+            } else {
+              paintTileAsType(grid, reserved, r, c, "grass");
+            }
+          }
+        }
+      }
+    }
+
+    // run final cleanup once (it's cheap)
+    finalRemoveSmallBlockingClusters(grid, reserved, seed, 4);
+    removeStrictForestSingletons(grid, reserved);
 
     const playerStart = roadEntrances[0]
       ? { row: roadEntrances[0].row, col: roadEntrances[0].col }

@@ -33,6 +33,185 @@
     return shader;
   }
 
+  // Draw inner, sun-facing highlight clipped to the rounded shape interior.
+  // This is deliberately separate from the shadow pass and is invoked
+  // after the shape texture is painted so the highlight remains visible.
+  function drawTerrainShapeInnerLight(ctx, shape, x0, y0, width, height, cornerRadius, cellWidth, cellHeight) {
+    try {
+      if (!ctx || !shape) return;
+      if (shape.light === false) return;
+
+      // Build a rounded-rect path matching the shape
+      const path = new Path2D();
+      const r = Math.max(0, Math.min(cornerRadius || 0, Math.min(width, height) / 2));
+      path.moveTo(x0 + r, y0);
+      path.lineTo(x0 + width - r, y0);
+      path.arcTo(x0 + width, y0, x0 + width, y0 + r, r);
+      path.lineTo(x0 + width, y0 + height - r);
+      path.arcTo(x0 + width, y0 + height, x0 + width - r, y0 + height, r);
+      path.lineTo(x0 + r, y0 + height);
+      path.arcTo(x0, y0 + height, x0, y0 + height - r, r);
+      path.lineTo(x0, y0 + r);
+      path.arcTo(x0, y0, x0 + r, y0, r);
+      path.closePath();
+
+      ctx.save();
+      try { ctx.clip(path); } catch (e) { /* some contexts may not support Path2D.clip */ }
+
+      // highlight strength: prefer runtime camera value, fallback to config
+      const cfgHL = Number(State.camera && State.camera.highlightStrength != null ? State.camera.highlightStrength : (Config && Config.DEFAULT_HIGHLIGHT_STRENGTH)) || 0.22;
+      const hl = Math.max(0, Math.min(2, cfgHL));
+
+      const sunAzRad = degToRad(Number(State.camera.sunAzimuth || 0));
+      const sx = Math.cos(sunAzRad);
+      const sy = Math.sin(sunAzRad);
+
+      const sunElev = Math.max(0, Math.min(90, Number(State.camera.sunElevation || 45)));
+      const sunElevFactor = sunElev / 90;
+
+      const cx = x0 + width * 0.5;
+      const cy = y0 + height * 0.5;
+      const reach = Math.max(width, height) * 0.6;
+      // apply brightness on the opposite side: reverse gradient endpoints
+      const gx0 = cx + sx * reach;
+      const gy0 = cy + sy * reach;
+      const gx1 = cx - sx * reach;
+      const gy1 = cy - sy * reach;
+
+      const grad = ctx.createLinearGradient(gx0, gy0, gx1, gy1);
+      const alpha = Math.max(0, Math.min(1, hl * (1 - sunElevFactor * 0.6)));
+      const stopColor = `rgba(255,236,160,${alpha.toFixed(3)})`;
+      grad.addColorStop(0.0, stopColor);
+      grad.addColorStop(0.35, `rgba(255,236,160,${(alpha * 0.35).toFixed(3)})`);
+      grad.addColorStop(1.0, 'rgba(255,236,160,0)');
+
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = grad;
+      ctx.fillRect(x0, y0, width, height);
+      try { if (console && console.info) console.info(`drawTerrainShapeInnerLight: alpha=${alpha.toFixed(3)} label=${typeof shape.label==='string'?shape.label:'<unnamed>'}`); } catch (e) {}
+      ctx.globalCompositeOperation = 'source-over';
+
+    } catch (err) {
+      console.warn('drawTerrainShapeInnerLight failed', err);
+    } finally {
+      ctx.restore();
+    }
+  }
+
+  // Apply tile-based relief lighting to the interior of a rounded shape.
+  // This reuses `computeReliefLight` and `applyReliefLighting` so the
+  // same lighting model used for terrain tiles is applied to the
+  // shape's texture. Lighting is only applied to the sun-facing tiles
+  // clipped to the rounded shape.
+  function drawTerrainShapeReliefLighting(ctx, shape, x0, y0, width, height, cornerRadius, cellWidth, cellHeight) {
+    try {
+      if (!ctx || !shape) return;
+      if (shape.light === false) return;
+
+      const world = State.world || {};
+      const seed = world.seed || 0;
+
+      // Build rounded rect path in main canvas coordinates for clipping
+      const r = Math.max(0, Math.min(cornerRadius || 0, Math.min(width, height) / 2));
+      const path = new Path2D();
+      path.moveTo(x0 + r, y0);
+      path.lineTo(x0 + width - r, y0);
+      path.arcTo(x0 + width, y0, x0 + width, y0 + r, r);
+      path.lineTo(x0 + width, y0 + height - r);
+      path.arcTo(x0 + width, y0 + height, x0 + width - r, y0 + height, r);
+      path.lineTo(x0 + r, y0 + height);
+      path.arcTo(x0, y0 + height, x0, y0 + height - r, r);
+      path.lineTo(x0, y0 + r);
+      path.arcTo(x0, y0, x0 + r, y0, r);
+      path.closePath();
+
+      // Grab a snapshot of the already-painted texture inside the shape
+      const w = Math.max(1, Math.round(width));
+      const h = Math.max(1, Math.round(height));
+      const tmp = document.createElement('canvas');
+      tmp.width = w;
+      tmp.height = h;
+      const tctx = tmp.getContext('2d');
+      // copy the just-drawn area from the main canvas
+      try {
+        tctx.drawImage(ctx.canvas, x0, y0, width, height, 0, 0, w, h);
+      } catch (err) {
+        // drawImage can fail in some contexts; abort gracefully
+        console.warn('drawTerrainShapeReliefLighting drawImage failed', err);
+        return;
+      }
+
+      const img = tctx.getImageData(0, 0, w, h);
+      const data = img.data;
+
+      const sun = getSunDirection();
+      const sunx = sun.x, suny = sun.y;
+
+      // Determine the tile range that intersects the shape bounding box
+      const leftTile = Math.floor(x0 / (cellWidth || 1));
+      const topTile = Math.floor(y0 / (cellHeight || 1));
+      const rightTile = Math.floor((x0 + width - 1) / (cellWidth || 1));
+      const bottomTile = Math.floor((y0 + height - 1) / (cellHeight || 1));
+
+      const rows = Math.max(1, (world.rows || 80));
+      const cols = Math.max(1, (world.cols || 80));
+
+      // center of shape in local tmp coords
+      const cx = w / 2;
+      const cy = h / 2;
+
+      for (let tr = topTile; tr <= bottomTile; tr++) {
+        for (let tc = leftTile; tc <= rightTile; tc++) {
+          if (tr < 0 || tc < 0 || tr >= rows || tc >= cols) continue;
+
+          // pixel range in tmp coordinates
+          const tileX0 = Math.max(0, Math.floor(tc * (cellWidth || 1) - x0));
+          const tileY0 = Math.max(0, Math.floor(tr * (cellHeight || 1) - y0));
+          const tileX1 = Math.max(0, Math.min(w, Math.ceil((tc + 1) * (cellWidth || 1) - x0)));
+          const tileY1 = Math.max(0, Math.min(h, Math.ceil((tr + 1) * (cellHeight || 1) - y0)));
+          if (tileX1 <= tileX0 || tileY1 <= tileY0) continue;
+
+          // quick sun-facing test: use tile center
+          const tileCenterX = (tc + 0.5) * (cellWidth || 1) - x0;
+          const tileCenterY = (tr + 0.5) * (cellHeight || 1) - y0;
+          const dx = tileCenterX - cx;
+          const dy = tileCenterY - cy;
+          const dot = dx * sunx + dy * suny;
+          if (dot <= 0) continue; // not facing the sun
+
+          // get tile lighting info (same as tiles)
+          const lightInfo = computeReliefLight(seed, tr + 0.5, tc + 0.5);
+          // skip tiles with no highlight/shadow
+          if (!lightInfo || (lightInfo.highlightAmount <= 0 && lightInfo.shadowAmount <= 0)) continue;
+
+          // apply per-pixel lighting within this tile rectangle
+          for (let py = tileY0; py < tileY1; py++) {
+            for (let px = tileX0; px < tileX1; px++) {
+              // ensure pixel is inside the rounded path
+              if (!ctx.isPointInPath(path, x0 + px, y0 + py)) continue;
+              const idx = (py * w + px) * 4;
+              const baseColor = { r: data[idx], g: data[idx + 1], b: data[idx + 2] };
+              const lit = applyReliefLighting(baseColor, lightInfo);
+              data[idx] = clampByte(lit.r);
+              data[idx + 1] = clampByte(lit.g);
+              data[idx + 2] = clampByte(lit.b);
+            }
+          }
+        }
+      }
+
+      // write back and draw into main canvas clipped to the shape
+      tctx.putImageData(img, 0, 0);
+      ctx.save();
+      ctx.clip(path);
+      ctx.drawImage(tmp, x0, y0);
+      ctx.restore();
+
+    } catch (err) {
+      console.warn('drawTerrainShapeReliefLighting failed', err);
+    }
+  }
+
   function createProgram(gl, vs, fs) {
     const program = gl.createProgram();
     gl.attachShader(program, vs);
@@ -736,8 +915,9 @@
 
   function applyReliefLighting(baseColor, lightInfo) {
     if (!State.camera.reliefEnabled) return baseColor;
-    const shadowStrength = Math.max(0, State.camera.shadowStrength || 0);
-    const highlightStrength = Math.max(0, State.camera.highlightStrength || 0);
+    // Use camera values when present, otherwise fall back to config defaults
+    const shadowStrength = Math.max(0, Number((State.camera && State.camera.shadowStrength != null) ? State.camera.shadowStrength : Config.DEFAULT_SHADOW_STRENGTH) || 0);
+    const highlightStrength = Math.max(0, Number((State.camera && State.camera.highlightStrength != null) ? State.camera.highlightStrength : Config.DEFAULT_HIGHLIGHT_STRENGTH) || 0);
     const shadowFactor = 1 - (lightInfo.shadowAmount * shadowStrength * (0.65 + lightInfo.edgeAmount * 0.35));
     const highlightAmount = lightInfo.highlightAmount * highlightStrength * (0.35 + lightInfo.edgeAmount * 0.65) * 72;
     const shadowed = scaleRgb(baseColor, shadowFactor);
@@ -1002,6 +1182,11 @@
       for (let col = baseCol - 1; col <= baseCol + 1; col++) {
         if (row < 0 || col < 0 || row >= world.rows || col >= world.cols) continue;
         if (row === baseRow && col === baseCol) continue;
+
+        // Skip diagonal neighbors to avoid corner-only color bleed
+        // which can make isolated diagonal tiles (singletons) visually
+        // appear as part of the base tile. Use orthogonal neighbors only.
+        if (row !== baseRow && col !== baseCol) continue;
 
         const neighborAppearance = getVisualTileAppearance(row, col);
         const type = neighborAppearance.type;
@@ -1711,7 +1896,395 @@
       }
     }
 
+  // Draw named features (overlays) onto the generated terrain canvas.
+  // Supports ellipse features filled with a tile texture (e.g., settlement).
+  // `onlyAfterProcessing` (boolean) when true draws only features flagged
+  // with `afterProcessing: true`. When false draws the rest.
+  function drawNamedFeatures(ctx, canvasWidth, canvasHeight, cellWidth, cellHeight, onlyAfterProcessing) {
+    const world = State.world || {};
+    const features = Array.isArray(world.namedFeatures) ? world.namedFeatures : [];
+    if (!features.length) return;
+    const drawAfter = Boolean(onlyAfterProcessing);
+
+    for (const f of features) {
+      try {
+        if (!f || f.type !== 'ellipse') continue;
+        const isAfter = Boolean(f.afterProcessing);
+        if (isAfter !== drawAfter) continue;
+
+        // Determine center in pixel coordinates
+        let centerX, centerY;
+        if (Number.isFinite(f.centerX) && Number.isFinite(f.centerY)) {
+          centerX = f.centerX;
+          centerY = f.centerY;
+        } else {
+          const row = Number.isFinite(f.centerRow) ? f.centerRow : (world.rows / 2 - 0.5);
+          const col = Number.isFinite(f.centerCol) ? f.centerCol : (world.cols / 2 - 0.5);
+          centerX = (col + 0.5) * cellWidth;
+          centerY = (row + 0.5) * cellHeight;
+        }
+
+        // Determine radii in pixels
+        let rx, ry;
+        if (Number.isFinite(f.radiusPxX) && Number.isFinite(f.radiusPxY)) {
+          rx = Math.max(1, f.radiusPxX);
+          ry = Math.max(1, f.radiusPxY);
+        } else {
+          const radiusCellsX = Number.isFinite(f.radiusCellsX)
+            ? Math.max(1, f.radiusCellsX)
+            : Math.max(1, Math.floor(Math.min(world.cols || 1, world.rows || 1) * 0.12));
+          const radiusCellsY = Number.isFinite(f.radiusCellsY)
+            ? Math.max(1, f.radiusCellsY)
+            : radiusCellsX;
+          rx = radiusCellsX * cellWidth;
+          ry = radiusCellsY * cellHeight;
+        }
+
+        const tileTexture = f.texture || 'settlement';
+        const pattern = getTileTexturePattern(ctx, tileTexture);
+        const tileImage = getTileTextureImage(tileTexture);
+        const fillColor = f.fillColor || f.color || null;
+        const UI = window.Game && window.Game.UI;
+        // (removed TEST ELIPSE debug logging)
+
+        ctx.save();
+        ctx.beginPath();
+        if (typeof ctx.ellipse === 'function') {
+          ctx.ellipse(centerX, centerY, rx, ry, 0, 0, Math.PI * 2);
+        } else {
+          ctx.save();
+          ctx.translate(centerX, centerY);
+          ctx.scale(rx, ry);
+          ctx.beginPath();
+          ctx.arc(0, 0, 1, 0, Math.PI * 2);
+          ctx.restore();
+        }
+        ctx.clip();
+
+        // (removed TEST ELIPSE debug logging)
+
+        // Draw the feature: prefer stretched image only when explicitly requested
+        // via `stretchTexture`; do not special-case any named feature here.
+        const useStretchedImage = Boolean(f && f.stretchTexture);
+        if (useStretchedImage && tileImage) {
+          // Draw the tile image scaled to the ellipse bounds; clipping limits it to ellipse shape
+          try {
+            ctx.drawImage(tileImage, centerX - rx, centerY - ry, rx * 2, ry * 2);
+          } catch (e) {
+            // drawImage can fail on tainted images; fallback to pattern if available
+            if (pattern) {
+              ctx.fillStyle = pattern;
+              ctx.fillRect(centerX - rx, centerY - ry, rx * 2, ry * 2);
+            }
+          }
+
+          // Apply color tint on top of the stretched image if requested
+          if (fillColor) {
+            const prevComposite = ctx.globalCompositeOperation;
+            const prevAlpha = ctx.globalAlpha;
+            try {
+              ctx.globalCompositeOperation = 'source-atop';
+              ctx.globalAlpha = Number.isFinite(f.fillAlpha) ? f.fillAlpha : 1.0;
+              ctx.fillStyle = fillColor;
+              ctx.fillRect(centerX - rx, centerY - ry, rx * 2, ry * 2);
+            } finally {
+              ctx.globalAlpha = prevAlpha;
+              ctx.globalCompositeOperation = prevComposite;
+            }
+          }
+        } else if (pattern) {
+          // Fill with the tile pattern first (repeating)
+          ctx.fillStyle = pattern;
+          ctx.fillRect(centerX - rx, centerY - ry, rx * 2, ry * 2);
+
+          // If a fillColor is present, apply it as a tint over the texture
+          if (fillColor) {
+            const prevComposite = ctx.globalCompositeOperation;
+            const prevAlpha = ctx.globalAlpha;
+            try {
+              ctx.globalCompositeOperation = 'source-atop';
+              const defaultTintAlpha = Number.isFinite(f.fillAlpha) ? f.fillAlpha : 0.6;
+              ctx.globalAlpha = defaultTintAlpha;
+              ctx.fillStyle = fillColor;
+              ctx.fillRect(centerX - rx, centerY - ry, rx * 2, ry * 2);
+            } finally {
+              ctx.globalAlpha = prevAlpha;
+              ctx.globalCompositeOperation = prevComposite;
+            }
+          }
+        } else if (fillColor) {
+          // No pattern or image available, fill solid with requested color
+          ctx.fillStyle = fillColor;
+          ctx.fill();
+        } else {
+          // Fallback: use a reasonable color based on texture name
+          ctx.fillStyle = rgbToCss(rendererFallbackColor(tileTexture)) || '#c9b48d';
+          ctx.fill();
+        }
+
+        ctx.restore();
+
+        // Draw label if present
+        if (f.name) {
+          ctx.save();
+          const fontSize = Math.max(10, Math.round(Math.min(rx, ry) * 0.16));
+          ctx.font = `${fontSize}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.lineWidth = Math.max(2, Math.round(Math.max(1, Math.min(rx, ry) * 0.03)));
+          ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+          ctx.fillStyle = 'rgba(255,255,255,0.95)';
+          ctx.strokeText(f.name, centerX, centerY);
+          ctx.fillText(f.name, centerX, centerY);
+          ctx.restore();
+        }
+      } catch (err) {
+        console.warn('drawNamedFeatures: failed to draw feature', f, err);
+      }
+    }
+  }
+
+  // Helper to provide a fallback color for a texture name when pattern unavailable.
+  function rendererFallbackColor(type) {
+    switch (type) {
+      case 'grass': return { r: 90, g: 155, b: 95 };
+      case 'dirt': return { r: 165, g: 123, b: 78 };
+      case 'mountain': return { r: 138, g: 142, b: 150 };
+      case 'lake':
+      case 'river': return { r: 75, g: 121, b: 180 };
+      case 'road': return { r: 185, g: 155, b: 104 };
+      case 'forest': return { r: 63, g: 111, b: 69 };
+      case 'settlement': return { r: 201, g: 180, b: 141 };
+      default: return { r: 90, g: 155, b: 95 };
+    }
+  }
+
     return textureCanvas;
+  }
+
+  // Draw a solid cyan circle at the player's position (200px radius).
+  function computePlayerCenterPixel(cellWidth, cellHeight) {
+    const world = State.world || {};
+    const player = world.player;
+    let centerRow = world && world.rows ? (world.rows / 2 - 0.5) : 0;
+    let centerCol = world && world.cols ? (world.cols / 2 - 0.5) : 0;
+    if (player) {
+      if (!player.moving) {
+        centerRow = Number.isFinite(player.row) ? player.row : centerRow;
+        centerCol = Number.isFinite(player.col) ? player.col : centerCol;
+      } else {
+        const t = Math.max(0, Math.min(1, player.progress || 0));
+        centerRow = player.startRow + (player.targetRow - player.startRow) * t;
+        centerCol = player.startCol + (player.targetCol - player.startCol) * t;
+      }
+    }
+    const centerX = (centerCol + 0.5) * cellWidth;
+    const centerY = (centerRow + 0.5) * cellHeight;
+    return { centerX, centerY };
+  }
+
+  // Draw shadow and directional sunlight for a rounded rectangle shape.
+  // This draws a cast shadow (offset/blurred) and an inner, sun-facing
+  // gradient highlight clipped to the shape interior so only the edge
+  // facing the sun receives the light pass.
+  function drawTerrainShapeShadowAndLight(ctx, shape, x0, y0, width, height, cornerRadius, cellWidth, cellHeight) {
+    try {
+      if (!ctx || !shape) return;
+      // allow per-shape disable for shadow/light
+      if (shape.shadow === false) return;
+
+      const sunAz = degToRad(Number(State.camera.sunAzimuth || 0));
+      const sun = { x: Math.cos(sunAz), y: Math.sin(sunAz) };
+      const shadowTiles = Math.max(0, Number(State.camera.shadowLength) || 5.4);
+      // Shadow offset in pixels (cast opposite to sun direction)
+      const offX = -sun.x * shadowTiles * (cellWidth || 1);
+      const offY = -sun.y * shadowTiles * (cellHeight || 1);
+
+      const sunElev = Math.max(0, Math.min(90, Number(State.camera.sunElevation || 45)));
+      const sunElevFactor = sunElev / 90; // 0..1
+      const shadowStrength = clamp01(Number(State.camera.shadowStrength) || 0.34);
+      const baseAlpha = Math.max(0.02, shadowStrength * (1 - sunElevFactor * 0.55));
+
+      // blur proportional to shape size and sun elevation
+      const blurPx = Math.max(1, Math.round(Math.min(width, height) * 0.04 * (1 - sunElevFactor)));
+
+      // Build a rounded-rect path using Path2D if available
+      const path = new Path2D();
+      const r = Math.max(0, Math.min(cornerRadius || 0, Math.min(width, height) / 2));
+      path.moveTo(x0 + r, y0);
+      path.lineTo(x0 + width - r, y0);
+      path.arcTo(x0 + width, y0, x0 + width, y0 + r, r);
+      path.lineTo(x0 + width, y0 + height - r);
+      path.arcTo(x0 + width, y0 + height, x0 + width - r, y0 + height, r);
+      path.lineTo(x0 + r, y0 + height);
+      path.arcTo(x0, y0 + height, x0, y0 + height - r, r);
+      path.lineTo(x0, y0 + r);
+      path.arcTo(x0, y0, x0 + r, y0, r);
+      path.closePath();
+
+      // --- Shadow pass (unchanged behavior) ---
+      ctx.save();
+      const hasFilter = typeof ctx.filter === 'string' || typeof ctx.filter === 'function';
+      if (hasFilter) {
+        try {
+          ctx.filter = `blur(${blurPx}px)`;
+          ctx.globalAlpha = baseAlpha;
+          ctx.fillStyle = '#000';
+          ctx.translate(offX, offY);
+          ctx.fill(path);
+        } finally {
+          ctx.filter = 'none';
+          ctx.globalAlpha = 1;
+        }
+      } else {
+        // Fallback: draw a few layered fills to fake a soft shadow
+        const passes = 4;
+        for (let p = passes; p >= 1; p--) {
+          const t = p / passes;
+          ctx.save();
+          ctx.globalAlpha = baseAlpha * (t * 0.35);
+          ctx.translate(offX * t * 0.35, offY * t * 0.35);
+          ctx.fillStyle = '#000';
+          ctx.fill(path);
+          ctx.restore();
+        }
+        ctx.globalAlpha = 1;
+      }
+      ctx.restore();
+
+      // Inner highlight is drawn after the texture fill so it remains visible.
+
+    } catch (err) {
+      console.warn('drawTerrainShapeShadowAndLight failed', err);
+    }
+  }
+
+  function drawTerrainShape(ctx, canvasWidth, canvasHeight, cellWidth, cellHeight) {
+    if (!ctx) return;
+    // Global visibility flag
+    if (!Config || !Config.DEFAULT_SHOW_TERRAIN_SHAPE) {
+      // Debug: log when shapes are disabled globally
+      try { if (console && console.info) console.info('drawTerrainShape: disabled by DEFAULT_SHOW_TERRAIN_SHAPE flag'); } catch (e) {}
+      return;
+    }
+    const world = State.world || {};
+    if (!world) {
+      try { if (console && console.info) console.info('drawTerrainShape: no world available'); } catch (e) {}
+      return;
+    }
+
+    const shapes = Array.isArray(Config.TERRAIN_SHAPES) ? Config.TERRAIN_SHAPES : [];
+    try { if (console && console.info) console.info(`drawTerrainShape: configured shapes=${shapes.length}`); } catch (e) {}
+    if (!shapes.length) {
+      try { if (console && console.info) console.info('drawTerrainShape: no TERRAIN_SHAPES configured'); } catch (e) {}
+      return;
+    }
+
+    // Precompute player center as fallback
+    const playerCenter = computePlayerCenterPixel(cellWidth, cellHeight);
+
+    for (let i = 0; i < shapes.length; i++) {
+      const s = shapes[i] || {};
+      if (s.visible === false) continue;
+
+      // Determine center pixel coordinates.
+      // Interpret `positionX`/`positionY` as tile coordinates (in tile units)
+      // and convert to pixel positions on the background canvas. If a value
+      // is not provided, fall back to the player's center pixel.
+      let centerX = NaN;
+      let centerY = NaN;
+      if (Number.isFinite(s.positionX)) {
+        const maxCols = Math.max(1, (State.world && State.world.cols) || 80);
+        const tx = Math.max(0, Math.min(maxCols, s.positionX));
+        centerX = tx * cellWidth;
+      }
+      if (Number.isFinite(s.positionY)) {
+        const maxRows = Math.max(1, (State.world && State.world.rows) || 80);
+        const ty = Math.max(0, Math.min(maxRows, s.positionY));
+        centerY = ty * cellHeight;
+      }
+      if (!Number.isFinite(centerX)) centerX = playerCenter.centerX;
+      if (!Number.isFinite(centerY)) centerY = playerCenter.centerY;
+
+      const width = Number.isFinite(s.width) ? Math.max(1, s.width) : 400;
+      const height = Number.isFinite(s.height) ? Math.max(1, s.height) : 400;
+      const corner = Number.isFinite(s.cornerCurve) ? Math.max(0, s.cornerCurve) : 24;
+
+      const x0 = centerX - width / 2;
+      const y0 = centerY - height / 2;
+      const r = Math.max(0, Math.min(corner, Math.min(width, height) / 2));
+
+      // Draw cast shadow and edge light for this shape before filling
+      // the shape itself.
+      try {
+        drawTerrainShapeShadowAndLight(ctx, s, x0, y0, width, height, r, cellWidth, cellHeight);
+      } catch (err) {
+        console.warn('drawTerrainShapeShadowAndLight failed', err);
+      }
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(x0 + r, y0);
+      ctx.lineTo(x0 + width - r, y0);
+      ctx.arcTo(x0 + width, y0, x0 + width, y0 + r, r);
+      ctx.lineTo(x0 + width, y0 + height - r);
+      ctx.arcTo(x0 + width, y0 + height, x0 + width - r, y0 + height, r);
+      ctx.lineTo(x0 + r, y0 + height);
+      ctx.arcTo(x0, y0 + height, x0, y0 + height - r, r);
+      ctx.lineTo(x0, y0 + r);
+      ctx.arcTo(x0, y0, x0 + r, y0, r);
+      ctx.closePath();
+
+      const prevAlpha = ctx.globalAlpha;
+      try {
+        ctx.globalAlpha = 1.0;
+        const textureKey = typeof s.texture === 'string' && s.texture ? s.texture : 'settlement';
+        const pattern = getTileTexturePattern(ctx, textureKey);
+        if (pattern) {
+          ctx.save();
+          ctx.clip();
+          ctx.fillStyle = pattern;
+          ctx.fillRect(x0, y0, width, height);
+          ctx.restore();
+        } else {
+          ctx.fillStyle = '#00FFFF';
+          ctx.fill();
+        }
+      } finally {
+        ctx.globalAlpha = prevAlpha;
+      }
+
+      // Draw inner highlight on top of the painted texture so it remains visible
+      try {
+        drawTerrainShapeInnerLight(ctx, s, x0, y0, width, height, r, cellWidth, cellHeight);
+      } catch (err) {
+        console.warn('drawTerrainShapeInnerLight failed', err);
+      }
+
+      // Terrain-shape lighting is handled by drawTerrainShapeShadowAndLight
+      // (inner highlight is applied there). Do not call tile-based
+      // lighting helpers here — shape lighting is independent.
+
+      // Draw label for this shape
+      try {
+        ctx.save();
+        const fontSize = Math.max(10, Math.round(Math.min(width, height) * 0.16));
+        ctx.font = `${fontSize}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineWidth = Math.max(2, Math.round(Math.max(1, Math.min(width, height) * 0.03)));
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.fillStyle = 'rgba(255,255,255,0.95)';
+        const label = typeof s.label === 'string' && s.label ? s.label : 'TERRAIN_SHAPE';
+        ctx.strokeText(label, centerX, centerY);
+        ctx.fillText(label, centerX, centerY);
+        ctx.restore();
+      } catch (e) {
+        // ignore
+      }
+
+      ctx.restore();
+    }
   }
 
   // Elevation overlays disabled.
@@ -1852,6 +2425,12 @@
 
     if (texturedBaseCanvas) {
       ctx.drawImage(texturedBaseCanvas, 0, 0);
+      // Draw named features (overlays) onto base texture (e.g., non-afterProcessing features)
+      try {
+        drawNamedFeatures(ctx, canvas.width, canvas.height, cellWidth, cellHeight, false);
+      } catch (e) {
+        console.warn('drawNamedFeatures failed', e);
+      }
       // Apply elevation overlays (slopes) before tint/shadow passes
       try {
         applyElevationOverlays(ctx, cellWidth, cellHeight);
@@ -1916,6 +2495,18 @@
 
     drawRoadOverlay(ctx, cellWidth, cellHeight);
     redrawElevatedTerrainOverRoadsFromCanvas(ctx, preRoadCanvas, cellWidth, cellHeight);
+    // Draw named features that must appear after all painting steps (e.g., TEST ELIPSE)
+    try {
+      drawNamedFeatures(ctx, canvas.width, canvas.height, cellWidth, cellHeight, true);
+    } catch (e) {
+      console.warn('drawNamedFeatures (after) failed', e);
+    }
+    // Draw the terrain overlay shape after all terrain painting finished
+    try {
+      drawTerrainShape(ctx, canvas.width, canvas.height, cellWidth, cellHeight);
+    } catch (e) {
+      console.warn('drawTerrainShape failed', e);
+    }
     render.needsBackgroundRebuild = false;
     render.needsBackgroundUpload = true;
     console.info(`Background rebuild finished (${canvas.width}x${canvas.height}).`);
@@ -1954,6 +2545,40 @@
     }
     if (render.needsBackgroundRebuild && render.preserveBackground) {
       if (UI && UI.addLog) UI.addLog('Background rebuild suppressed to preserve imported map image.', `Source: ${render.backgroundSource || 'imported'}`);
+      // If a preserved background canvas exists, draw named overlays (e.g., TEST ELIPSE)
+      // directly onto the preserved canvas so overlays are visible without a full rebuild.
+      try {
+        if (render.worldBackgroundCanvas && typeof drawNamedFeatures === 'function') {
+          const canvas = render.worldBackgroundCanvas;
+          const ctx2d = canvas.getContext('2d', { alpha: false });
+          if (ctx2d) {
+            ctx2d.imageSmoothingEnabled = false;
+            const cellWidth = canvas.width / Math.max(1, (State.world && State.world.cols) || 1);
+            const cellHeight = canvas.height / Math.max(1, (State.world && State.world.rows) || 1);
+            try {
+              drawNamedFeatures(ctx2d, canvas.width, canvas.height, cellWidth, cellHeight, false);
+            } catch (err) {
+              console.warn('drawNamedFeatures (pre) failed on preserved background', err);
+            }
+            try {
+              drawNamedFeatures(ctx2d, canvas.width, canvas.height, cellWidth, cellHeight, true);
+            } catch (err) {
+              console.warn('drawNamedFeatures (after) failed on preserved background', err);
+            }
+            // Draw the player circle overlay onto preserved background as well
+            try {
+              drawTerrainShape(ctx2d, canvas.width, canvas.height, cellWidth, cellHeight);
+            } catch (err) {
+              console.warn('drawTerrainShape failed on preserved background', err);
+            }
+            // Flag that the background needs uploading to the GL texture
+            render.needsBackgroundUpload = true;
+            render.backgroundTextureReady = false;
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to draw named features onto preserved background', e);
+      }
       render.needsBackgroundRebuild = false;
     }
     if (render.needsBackgroundRebuild || !render.worldBackgroundCanvas) rebuildBackgroundCanvas();

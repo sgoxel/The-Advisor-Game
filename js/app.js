@@ -1007,7 +1007,20 @@ window.Game = window.Game || {};
     State.camera.shadowStrength = shadowStrength;
     State.camera.highlightStrength = highlightStrength;
     State.camera.shadowLength = shadowLength;
+    // Preserve TERRAIN_SHAPES across the world rebuild triggered by settings apply.
+    // Some rebuild paths may reset or clear configuration arrays; keep a copy
+    // and restore it if necessary to avoid overlays vanishing when users press Apply.
+    const savedTerrainShapes = Array.isArray(Config.TERRAIN_SHAPES) ? JSON.parse(JSON.stringify(Config.TERRAIN_SHAPES)) : null;
     await rebuildWorld(seed, cols, rows);
+    // If the rebuild or any startup sequence cleared the config entry, restore it.
+    try {
+      if (savedTerrainShapes && (!Array.isArray(Config.TERRAIN_SHAPES) || Config.TERRAIN_SHAPES.length === 0)) {
+        Config.TERRAIN_SHAPES = savedTerrainShapes;
+        if (UI && UI.addLog) UI.addLog('Restored terrain overlay shapes after settings applied.');
+      }
+    } catch (e) {
+      console.warn('Failed to restore TERRAIN_SHAPES after settings apply', e);
+    }
     UI.closeSettingsModal();
     UI.addLog(I18n.t("logs.settingsApplied", { seed, cols, rows }));
     updateWorldSummary(seed, cols, rows);
@@ -1163,6 +1176,17 @@ window.Game = window.Game || {};
       resizeAll();
       UI.addLog(I18n.t("logs.appStarted"));
       await rebuildWorld(Config.DEFAULT_SEED, Config.DEFAULT_COLS, Config.DEFAULT_ROWS, { preferFixedStartupMap: true });
+
+      // Remove any leftover TEST ELIPSE named-features; we draw the player circle
+      // directly in the renderer after the terrain painting finishes.
+      try {
+        if (State.world && Array.isArray(State.world.namedFeatures)) {
+          State.world.namedFeatures = State.world.namedFeatures.filter(f => !(f && f.name === 'TEST ELIPSE'));
+        }
+      } catch (e) {
+        console.warn('Failed to remove TEST ELIPSE overlay', e);
+      }
+
       updateWorldSummary(State.world.seed, State.world.cols, State.world.rows);
 
       window.addEventListener("resize", () => {
