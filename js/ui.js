@@ -93,71 +93,6 @@ window.Game = window.Game || {};
   }
 
 
-  const STEGO_MAGIC = "SMSD";
-  const STEGO_VERSION = 1;
-
-  function encodeUtf8(value) {
-    if (typeof TextEncoder === "function") {
-      return new TextEncoder().encode(String(value || ""));
-    }
-    const input = String(value || "");
-    const bytes = new Uint8Array(input.length);
-    for (let i = 0; i < input.length; i++) bytes[i] = input.charCodeAt(i) & 255;
-    return bytes;
-  }
-
-  function buildStegoPayloadBytes(payload) {
-    const jsonBytes = encodeUtf8(JSON.stringify(payload));
-    const header = new Uint8Array(12);
-    header[0] = STEGO_MAGIC.charCodeAt(0);
-    header[1] = STEGO_MAGIC.charCodeAt(1);
-    header[2] = STEGO_MAGIC.charCodeAt(2);
-    header[3] = STEGO_MAGIC.charCodeAt(3);
-    header[4] = (STEGO_VERSION >>> 24) & 255;
-    header[5] = (STEGO_VERSION >>> 16) & 255;
-    header[6] = (STEGO_VERSION >>> 8) & 255;
-    header[7] = STEGO_VERSION & 255;
-    const length = jsonBytes.length >>> 0;
-    header[8] = (length >>> 24) & 255;
-    header[9] = (length >>> 16) & 255;
-    header[10] = (length >>> 8) & 255;
-    header[11] = length & 255;
-
-    const payloadBytes = new Uint8Array(header.length + jsonBytes.length);
-    payloadBytes.set(header, 0);
-    payloadBytes.set(jsonBytes, header.length);
-    return payloadBytes;
-  }
-
-  function embedMapDataInCanvas(canvas, payload) {
-    if (!canvas || !payload) return canvas;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) throw new Error("Canvas 2D context is not available.");
-
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const pixels = imageData.data;
-    const payloadBytes = buildStegoPayloadBytes(payload);
-    const requiredBits = payloadBytes.length * 8;
-    const capacityBits = Math.floor(pixels.length / 4) * 3;
-    if (requiredBits > capacityBits) {
-      throw new Error(`Map data is too large to embed in the PNG. Required ${requiredBits} bits, capacity ${capacityBits} bits.`);
-    }
-
-    let bitIndex = 0;
-    for (let i = 0; i < pixels.length && bitIndex < requiredBits; i += 4) {
-      for (let channel = 0; channel < 3 && bitIndex < requiredBits; channel++) {
-        const byteIndex = bitIndex >> 3;
-        const bitOffset = 7 - (bitIndex & 7);
-        const bit = (payloadBytes[byteIndex] >> bitOffset) & 1;
-        pixels[i + channel] = (pixels[i + channel] & 0xfe) | bit;
-        bitIndex += 1;
-      }
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-    return canvas;
-  }
-
   const TILE_EXPORT_CODES = {
     grass: "gr",
     dirt: "di",
@@ -240,40 +175,11 @@ window.Game = window.Game || {};
     return payload;
   }
 
-  function exportCurrentView() {
-    const filename = `map.png`;
-
-    try {
-      const exportCanvas = buildFullMapExportCanvas();
-      if (!exportCanvas) {
-        addLog(I18n && I18n.t ? I18n.t("logs.exportFailed") : "Export failed.", "Full map canvas not available.");
-        return;
-      }
-
-      const payload = buildMapDataExportObject({ excludeMapImage: true });
-      embedMapDataInCanvas(exportCanvas, payload);
-
-      if (exportCanvas.toBlob) {
-        exportCanvas.toBlob((blob) => {
-          if (!blob) {
-            addLog(I18n && I18n.t ? I18n.t("logs.exportFailed") : "Export failed.");
-            return;
-          }
-          triggerDownload(URL.createObjectURL(blob), filename, "logs.exportCompleted");
-        }, "image/png");
-      } else {
-        triggerDownload(exportCanvas.toDataURL("image/png"), filename, "logs.exportCompleted");
-      }
-    } catch (error) {
-      addLog(I18n && I18n.t ? I18n.t("logs.exportFailed") : "Export failed.", error && error.message ? error.message : String(error));
-    }
-  }
-
   function exportMapData() {
     const filename = `map.js`;
 
     try {
-      const payload = buildMapDataExportObject({ excludeMapImage: true });
+      const payload = buildMapDataExportObject();
       if (!payload) {
         addLog(I18n && I18n.t ? I18n.t("logs.mapDataExportFailed") : "Map data export failed.", "Full map canvas not available.");
         return;
@@ -285,7 +191,7 @@ window.Game = window.Game || {};
         ";\n"
       ].join("");
       const blob = new Blob([scriptText], { type: "application/javascript;charset=utf-8" });
-      triggerDownload(URL.createObjectURL(blob), filename, "logs.mapDataExportCompleted");
+      triggerDownload(URL.createObjectURL(blob), filename, "logs.exportCompleted");
     } catch (error) {
       addLog(
         I18n && I18n.t ? I18n.t("logs.mapDataExportFailed") : "Map data export failed.",
@@ -435,7 +341,6 @@ window.Game = window.Game || {};
     dom.menuGithubBtn = document.getElementById("menuGithubBtn");
     dom.menuSaveBtn = document.getElementById("menuSaveBtn");
     dom.menuLoadBtn = document.getElementById("menuLoadBtn");
-    dom.menuExportMapDataBtn = document.getElementById("menuExportMapDataBtn");
     dom.menuExportMasksBtn = document.getElementById("menuExportMasksBtn");
     dom.localMapFolderInput = document.getElementById("localMapFolderInput");
     dom.settingsBtn = document.getElementById("settingsBtn");
@@ -452,6 +357,7 @@ window.Game = window.Game || {};
     dom.mapHeightInput = document.getElementById("mapHeightInput");
     dom.cameraPitchInput = document.getElementById("cameraPitchInput");
     dom.depthStrengthInput = document.getElementById("depthStrengthInput");
+    dom.curveAngleInput = document.getElementById("curveAngleInput");
     dom.blendPixelSizeInput = document.getElementById("blendPixelSizeInput");
     dom.blendStrengthInput = document.getElementById("blendStrengthInput");
     dom.noiseGridDivisionsInput = document.getElementById("noiseGridDivisionsInput");
@@ -501,6 +407,7 @@ window.Game = window.Game || {};
     dom.textureInfo.road = document.getElementById("textureRoadInput");
     dom.textureInfo.mountain = document.getElementById("textureMountainInput");
     dom.textureInfo.settlement = document.getElementById("textureSettlementInput");
+    dom.loadingOverlay = document.getElementById("loadingOverlay");
   }
 
   function syncSettingsInputs() {
@@ -512,6 +419,7 @@ window.Game = window.Game || {};
     dom.depthStrengthInput.value = State.camera.depthStrength;
     if (dom.blendPixelSizeInput) dom.blendPixelSizeInput.value = State.camera.blendPixelSize;
     if (dom.blendStrengthInput) dom.blendStrengthInput.value = State.camera.blendStrength;
+    if (dom.curveAngleInput) dom.curveAngleInput.value = State.camera.curveAngle;
     if (dom.noiseGridDivisionsInput) dom.noiseGridDivisionsInput.value = State.camera.noiseGridDivisions;
     if (dom.showGridInput) dom.showGridInput.checked = !!State.camera.showGrid;
     if (dom.reliefEnabledInput) dom.reliefEnabledInput.checked = !!State.camera.reliefEnabled;
@@ -580,6 +488,18 @@ window.Game = window.Game || {};
     State.log.lines.push(line);
     if (State.log.lines.length > State.log.maxLines) State.log.lines.shift();
     renderLogs();
+  }
+
+  function showLoading() {
+    try {
+      if (State.dom && State.dom.loadingOverlay) State.dom.loadingOverlay.classList.remove("hidden");
+    } catch (e) {}
+  }
+
+  function hideLoading() {
+    try {
+      if (State.dom && State.dom.loadingOverlay) State.dom.loadingOverlay.classList.add("hidden");
+    } catch (e) {}
   }
 
 
@@ -843,7 +763,7 @@ window.Game = window.Game || {};
       closeMainMenu();
     });
     dom.menuSaveBtn.addEventListener("click", () => {
-      exportCurrentView();
+      exportMapData();
       closeMainMenu();
     });
     dom.menuLoadBtn.addEventListener("click", () => {
@@ -854,12 +774,6 @@ window.Game = window.Game || {};
       }
       closeMainMenu();
     });
-    if (dom.menuExportMapDataBtn) {
-      dom.menuExportMapDataBtn.addEventListener("click", () => {
-        exportMapData();
-        closeMainMenu();
-      });
-    }
     if (dom.menuExportMasksBtn) {
       dom.menuExportMasksBtn.addEventListener("click", () => {
         exportTileMasks();
@@ -951,6 +865,8 @@ window.Game = window.Game || {};
     updateTopMenuScrollButtons,
     scrollToMobilePanels,
     syncDialogTextHeight,
-    updateMobilePanelsToggle
+    updateMobilePanelsToggle,
+    showLoading,
+    hideLoading
   };
 })();
