@@ -1,27 +1,64 @@
 /* ROAD_PATCH_V2: diagonal connectivity + color fix */
+/*
+  FILE PURPOSE:
+  Render the rectangular game world with WebGL using true 3D perspective projection.
+*/
 
-(function(){
+window.Game = window.Game || {};
 
-  // Bind common globals used throughout this renderer. Other modules
-  // typically do `const State = window.Game.State` at their top-level;
-  // the renderer is a large IIFE and needs local bindings too.
-  window.Game = window.Game || {};
-  const Config = window.Game && window.Game.Config;
-  const State = window.Game && window.Game.State;
-  const RNG = window.Game && window.Game.RNG;
+(function () {
+  const State = window.Game.State;
+  const Config = window.Game.Config;
+  const RNG = window.Game.RNG;
 
-  // Small numeric and transform constants used by the renderer.
-  const EPSILON = 1e-6;
+  const COLOR_VERTEX_SHADER_SOURCE = `
+    attribute vec3 a_position;
+    uniform mat4 u_matrix;
+    void main() {
+      gl_Position = u_matrix * vec4(a_position, 1.0);
+    }
+  `;
+
+  const COLOR_FRAGMENT_SHADER_SOURCE = `
+    precision mediump float;
+    uniform vec4 u_color;
+    void main() {
+      gl_FragColor = u_color;
+    }
+  `;
+
+  const TEXTURE_VERTEX_SHADER_SOURCE = `
+    attribute vec3 a_position;
+    attribute vec2 a_texCoord;
+    uniform mat4 u_matrix;
+    varying vec2 v_texCoord;
+    void main() {
+      gl_Position = u_matrix * vec4(a_position, 1.0);
+      v_texCoord = a_texCoord;
+    }
+  `;
+
+  const TEXTURE_FRAGMENT_SHADER_SOURCE = `
+    precision mediump float;
+    uniform sampler2D u_texture;
+    varying vec2 v_texCoord;
+    void main() {
+      gl_FragColor = texture2D(u_texture, v_texCoord);
+    }
+  `;
+
+  const EPSILON = 0.000001;
+  const WORLD_SURFACE_Y = 0.0;
+  const GRID_OVERLAY_Y = 0.25;
+  const MARKER_Y = 1.15;
   const WORLD_ROTATION_DEGREES = 45;
-  const WORLD_SURFACE_Y = 0;
-  const GRID_OVERLAY_Y = WORLD_SURFACE_Y + 0.02;
-  const MARKER_Y = WORLD_SURFACE_Y + 0.02;
 
-  // Minimal WebGL shader sources required by the renderer's programs.
-  const COLOR_VERTEX_SHADER_SOURCE = `attribute vec3 a_position; uniform mat4 u_matrix; void main() { gl_Position = u_matrix * vec4(a_position, 1.0); }`;
-  const COLOR_FRAGMENT_SHADER_SOURCE = `precision mediump float; uniform vec4 u_color; void main() { gl_FragColor = u_color; }`;
-  const TEXTURE_VERTEX_SHADER_SOURCE = `attribute vec3 a_position; attribute vec2 a_texCoord; uniform mat4 u_matrix; varying vec2 v_texCoord; void main() { v_texCoord = a_texCoord; gl_Position = u_matrix * vec4(a_position, 1.0); }`;
-  const TEXTURE_FRAGMENT_SHADER_SOURCE = `precision mediump float; varying vec2 v_texCoord; uniform sampler2D u_texture; void main() { gl_FragColor = texture2D(u_texture, v_texCoord); }`;
+  function markDirty(worldDirty, minimapDirty) {
+    if (worldDirty !== false) {
+      State.render.needsWorldRedraw = true;
+    }
+    if (minimapDirty !== false) State.render.needsMinimapRedraw = true;
+  }
 
   function createShader(gl, type, source) {
     const shader = gl.createShader(type);
@@ -463,12 +500,6 @@
 
   function updateCameraFollow() {
     if (State.camera.followPlayer && State.world.player && State.world.player.moving) centerCamera();
-  }
-
-  function markDirty(worldDirty = true, minimapDirty = true) {
-    const render = State.render || {};
-    if (worldDirty !== false) render.needsWorldRedraw = true;
-    if (minimapDirty !== false) render.needsMinimapRedraw = true;
   }
 
   function resizeCanvas() {
@@ -1689,142 +1720,31 @@
     if (textureCtx) textureCtx.imageSmoothingEnabled = false;
     if (!textureCtx) return null;
 
-    // Helper: find a reasonable lower-layer type for upper-layer tiles
-    function findLowerLayerType(r, c) {
-      const counts = Object.create(null);
-      for (let nr = r - 1; nr <= r + 1; nr++) {
-        for (let nc = c - 1; nc <= c + 1; nc++) {
-          if (nr < 0 || nc < 0 || nr >= world.rows || nc >= world.cols) continue;
-          if (nr === r && nc === c) continue;
-          const neighbor = getTile(nr, nc);
-          if (!neighbor) continue;
-          const nLevel = getRenderLevel(neighbor, nr, nc);
-          if (nLevel <= 1) {
-            const t = getTileType(nr, nc) || neighbor.type || 'grass';
-            counts[t] = (counts[t] || 0) + 1;
-          }
-        }
-      }
-      let best = null;
-      let bestCount = 0;
-      Object.keys(counts).forEach((k) => {
-        if (counts[k] > bestCount) {
-          best = k; bestCount = counts[k];
-        }
-      });
-      return best || 'grass';
-    }
-
-    // Pass 1: paint the lower-layer base for every cell. This ensures
-    // any trimmed/rounded upper-layer shapes will show the underlying
-    // tile texture in the empty areas.
     for (let row = 0; row < world.rows; row++) {
       for (let col = 0; col < world.cols; col++) {
-        const tile = getTile(row, col);
+        const appearance = getVisualTileAppearance(row, col);
+        const pattern = getTileTexturePattern(textureCtx, appearance.type);
         const x = Math.floor(col * cellWidth);
         const y = Math.floor(row * cellHeight);
         const width = Math.max(1, Math.ceil((col + 1) * cellWidth) - x);
         const height = Math.max(1, Math.ceil((row + 1) * cellHeight) - y);
 
-        let baseType;
-        if (!tile) {
-          baseType = 'grass';
-        } else {
-          const level = getRenderLevel(tile, row, col);
-          if (level <= 1) baseType = getTileType(row, col) || tile.type || 'grass';
-          else baseType = findLowerLayerType(row, col);
-        }
-
-        const pattern = getTileTexturePattern(textureCtx, baseType) || getTileTexturePattern(textureCtx, 'grass');
         if (pattern) {
           fillRectWithPattern(textureCtx, pattern, x, y, width, height);
         } else {
-          const fillRgb = hexToRgb(terrainColor({ type: baseType }));
-          textureCtx.fillStyle = rgbToCss(fillRgb);
-          textureCtx.fillRect(x, y, width, height);
+          const fallbackPattern = getTileTexturePattern(textureCtx, "grass");
+          if (fallbackPattern) {
+            fillRectWithPattern(textureCtx, fallbackPattern, x, y, width, height);
+          } else {
+            textureCtx.fillStyle = rgbToCss(appearance.color);
+            textureCtx.fillRect(x, y, width, height);
+          }
         }
-      }
-    }
-
-    // Pass 2: draw upper-layer cluster shapes (rounded/polygonal) on top
-    // of the base so corners are softened and empty areas expose the base.
-    for (let row = 0; row < world.rows; row++) {
-      for (let col = 0; col < world.cols; col++) {
-        const tile = getTile(row, col);
-        if (!tile) continue;
-        const level = getRenderLevel(tile, row, col);
-        if (level <= 1) continue; // only draw shapes for upper layers
-
-        const x = Math.floor(col * cellWidth);
-        const y = Math.floor(row * cellHeight);
-        const width = Math.max(1, Math.ceil((col + 1) * cellWidth) - x);
-        const height = Math.max(1, Math.ceil((row + 1) * cellHeight) - y);
-
-        const sameType = (r, c) => {
-          const t = getTile(r, c);
-          return !!(t && getTileType(r, c) === getTileType(row, col));
-        };
-
-        const n = row > 0 && sameType(row - 1, col);
-        const s = row < world.rows - 1 && sameType(row + 1, col);
-        const w = col > 0 && sameType(row, col - 1);
-        const e = col < world.cols - 1 && sameType(row, col + 1);
-
-        const pad = Math.max(2, Math.floor(Math.min(width, height) * 0.16));
-        const left = x + (w ? 0 : pad);
-        const right = x + width - (e ? 0 : pad);
-        const top = y + (n ? 0 : pad);
-        const bottom = y + height - (s ? 0 : pad);
-
-        const baseRadius = Math.max(2, Math.floor(Math.min(width, height) * 0.22));
-        const cornerRadius = (adj1, adj2) => {
-          if (adj1 && adj2) return 0;
-          if (adj1 || adj2) return Math.floor(baseRadius * 0.5);
-          return baseRadius;
-        };
-
-        const tl = cornerRadius(n, w);
-        const tr = cornerRadius(n, e);
-        const br = cornerRadius(s, e);
-        const bl = cornerRadius(s, w);
-
-        const pattern = getTileTexturePattern(textureCtx, getTileType(row, col) || tile.type) || getTileTexturePattern(textureCtx, 'grass');
-
-        textureCtx.save();
-        textureCtx.beginPath();
-        textureCtx.moveTo(left + tl, top);
-        textureCtx.lineTo(right - tr, top);
-        if (tr > 0) textureCtx.quadraticCurveTo(right, top, right, top + tr);
-        else textureCtx.lineTo(right, top);
-
-        textureCtx.lineTo(right, bottom - br);
-        if (br > 0) textureCtx.quadraticCurveTo(right, bottom, right - br, bottom);
-        else textureCtx.lineTo(right, bottom);
-
-        textureCtx.lineTo(left + bl, bottom);
-        if (bl > 0) textureCtx.quadraticCurveTo(left, bottom, left, bottom - bl);
-        else textureCtx.lineTo(left, bottom);
-
-        textureCtx.lineTo(left, top + tl);
-        if (tl > 0) textureCtx.quadraticCurveTo(left, top, left + tl, top);
-        else textureCtx.lineTo(left, top);
-        textureCtx.closePath();
-
-        if (pattern) {
-          textureCtx.fillStyle = pattern;
-          textureCtx.fill();
-        } else {
-          textureCtx.fillStyle = rgbToCss(hexToRgb(terrainColor({ type: getTileType(row, col) || tile.type })));
-          textureCtx.fill();
-        }
-        textureCtx.restore();
       }
     }
 
     return textureCanvas;
   }
-
-  // NOTE: elevation curve overlays removed — replaced by softened cluster painting
 
   function getTextureSample(basePixels, canvasWidth, canvasHeight, x, y) {
     if (!basePixels || !basePixels.length) return null;
@@ -1924,10 +1844,6 @@
     const world = State.world;
     const render = State.render;
     const UI = window.Game && window.Game.UI;
-    if (render && render.preserveBackground) {
-      if (UI && UI.addLog) UI.addLog('Background rebuild aborted: preserving imported map image.', `Source: ${render.backgroundSource || 'imported'}`);
-      return;
-    }
     if (!world || !world.terrain || !world.terrain.length) return;
 
     render.roadAppearanceCache = new Map();
@@ -1945,7 +1861,6 @@
     const blockSize = Math.max(1, Math.round(State.camera.blendPixelSize || 4));
     const cellWidth = canvas.width / Math.max(1, world.cols);
     const cellHeight = canvas.height / Math.max(1, world.rows);
-    render.backgroundSource = 'generated-texture';
     const seed = `${world.seed}|blend|${blockSize}|${State.camera.blendStrength || 0}`;
     const texturedBaseCanvas = buildTexturedBaseCanvas(canvas.width, canvas.height, cellWidth, cellHeight);
     const pxPerCell = (canvas.width / Math.max(1, world.cols)).toFixed(1);
@@ -2020,42 +1935,12 @@
     render.needsBackgroundUpload = true;
     console.info(`Background rebuild finished (${canvas.width}x${canvas.height}).`);
     if (UI && UI.addLog) {
-      UI.addLog(`Terrain rebuild finished: roads layered, background ready.`, `Background source: ${render.backgroundSource || 'generated'}.`);
+      UI.addLog(`Terrain rebuild finished: roads layered, background ready.`);
     }
-  }
-
-  function scaleCanvasToMaxTextureSize(sourceCanvas, maxTextureSize) {
-    if (!sourceCanvas) return null;
-    const width = Math.max(1, Number(sourceCanvas.width) || 1);
-    const height = Math.max(1, Number(sourceCanvas.height) || 1);
-    const limit = Math.max(256, Number(maxTextureSize) || 4096);
-    const largestSide = Math.max(width, height);
-    if (largestSide <= limit) return sourceCanvas;
-
-    const scale = limit / largestSide;
-    const nextWidth = Math.max(1, Math.floor(width * scale));
-    const nextHeight = Math.max(1, Math.floor(height * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = nextWidth;
-    canvas.height = nextHeight;
-    const ctx = canvas.getContext("2d", { alpha: false });
-    if (!ctx) return sourceCanvas;
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(sourceCanvas, 0, 0, nextWidth, nextHeight);
-    return canvas;
   }
 
   function ensureBackgroundTexture(gl) {
     const render = State.render;
-    const UI = window.Game && window.Game.UI;
-    const maxTextureSize = Number(gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096) || 4096;
-    if (render.backgroundUploadBlocked && !render.needsBackgroundUpload && !render.backgroundTextureReady) {
-      return false;
-    }
-    if (render.needsBackgroundRebuild && render.preserveBackground) {
-      if (UI && UI.addLog) UI.addLog('Background rebuild suppressed to preserve imported map image.', `Source: ${render.backgroundSource || 'imported'}`);
-      render.needsBackgroundRebuild = false;
-    }
     if (render.needsBackgroundRebuild || !render.worldBackgroundCanvas) rebuildBackgroundCanvas();
     if (!render.worldBackgroundCanvas) return false;
     if (!render.needsBackgroundUpload && render.backgroundTextureReady) return true;
@@ -2064,94 +1949,8 @@
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
     try {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, render.worldBackgroundCanvas);
-      render.backgroundUploadBlocked = false;
-      if (UI && UI.addLog) UI.addLog(`Background texture uploaded from ${render.backgroundSource || 'generated'}.`, `${render.worldBackgroundCanvas.width}x${render.worldBackgroundCanvas.height}`);
     } catch (error) {
       console.warn("Background texture upload failed.", error);
-      const errorMessage = error && error.message ? error.message : String(error);
-      const taintedCanvasError = /tainted canvases may not be loaded/i.test(errorMessage);
-      if (UI && UI.addLog) {
-        UI.addLog(
-          'Background texture upload failed.',
-          `Source: ${render.backgroundSource || 'unknown'}. Canvas: ${render.worldBackgroundCanvas ? `${render.worldBackgroundCanvas.width}x${render.worldBackgroundCanvas.height}` : 'none'}. MAX_TEXTURE_SIZE: ${maxTextureSize}. Error: ${errorMessage}`
-        );
-      }
-
-      if (taintedCanvasError) {
-        if (render.preserveBackground) {
-          if (UI && UI.addLog) {
-            UI.addLog(
-              'Imported map image cannot be used as quad texture in this browser context.',
-              'Browser security marked the imported canvas as tainted. Falling back to generated terrain background.'
-            );
-          }
-          render.preserveBackground = false;
-          render.backgroundUploadBlocked = false;
-          render.needsBackgroundRebuild = true;
-          render.needsBackgroundUpload = true;
-          render.backgroundTextureReady = false;
-          rebuildBackgroundCanvas();
-          if (!render.worldBackgroundCanvas) {
-            render.backgroundUploadBlocked = true;
-            render.needsBackgroundUpload = false;
-            return false;
-          }
-          try {
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, render.worldBackgroundCanvas);
-            render.backgroundUploadBlocked = false;
-            if (UI && UI.addLog) UI.addLog(`Background texture uploaded from ${render.backgroundSource || 'generated'} (security fallback).`, `${render.worldBackgroundCanvas.width}x${render.worldBackgroundCanvas.height}`);
-            render.needsBackgroundUpload = false;
-            render.backgroundTextureReady = true;
-            return true;
-          } catch (securityFallbackError) {
-            if (UI && UI.addLog) {
-              UI.addLog(
-                'Fallback background upload also failed.',
-                securityFallbackError && securityFallbackError.message ? securityFallbackError.message : String(securityFallbackError)
-              );
-            }
-            render.backgroundUploadBlocked = true;
-            render.needsBackgroundUpload = false;
-            return false;
-          }
-        }
-
-        render.backgroundUploadBlocked = true;
-        render.needsBackgroundUpload = false;
-        return false;
-      }
-
-      if (render.worldBackgroundCanvas) {
-        const fittedCanvas = scaleCanvasToMaxTextureSize(render.worldBackgroundCanvas, maxTextureSize);
-        if (fittedCanvas && fittedCanvas !== render.worldBackgroundCanvas) {
-          render.worldBackgroundCanvas = fittedCanvas;
-          render.needsBackgroundRebuild = false;
-          render.needsBackgroundUpload = true;
-          render.backgroundTextureReady = false;
-          if (UI && UI.addLog) {
-            UI.addLog(
-              'Background canvas downscaled for GPU limits.',
-              `New canvas: ${fittedCanvas.width}x${fittedCanvas.height} (MAX_TEXTURE_SIZE=${maxTextureSize}).`
-            );
-          }
-          try {
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, render.worldBackgroundCanvas);
-            render.backgroundUploadBlocked = false;
-            if (UI && UI.addLog) UI.addLog(`Background texture uploaded from ${render.backgroundSource || 'generated'} (downscaled).`, `${render.worldBackgroundCanvas.width}x${render.worldBackgroundCanvas.height}`);
-            render.needsBackgroundUpload = false;
-            render.backgroundTextureReady = true;
-            return true;
-          } catch (downscaleError) {
-            if (UI && UI.addLog) {
-              UI.addLog(
-                'Background upload failed after downscaling.',
-                downscaleError && downscaleError.message ? downscaleError.message : String(downscaleError)
-              );
-            }
-          }
-        }
-      }
-
       render.needsBackgroundRebuild = true;
       render.needsBackgroundUpload = true;
       render.backgroundTextureReady = false;
@@ -2159,12 +1958,8 @@
       if (!render.worldBackgroundCanvas) return false;
       try {
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, render.worldBackgroundCanvas);
-        render.backgroundUploadBlocked = false;
-        if (UI && UI.addLog) UI.addLog(`Background texture uploaded from ${render.backgroundSource || 'generated'} (retry).`, `${render.worldBackgroundCanvas.width}x${render.worldBackgroundCanvas.height}`);
       } catch (retryError) {
         console.warn("Background texture upload retry failed.", retryError);
-        render.backgroundUploadBlocked = true;
-        render.needsBackgroundUpload = false;
         return false;
       }
     }

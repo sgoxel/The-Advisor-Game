@@ -102,9 +102,8 @@ generateClusters():
 
 ## 10. Export Rules
 
-- Export map bundles as JavaScript files (no separate image export)
-- Format: map.js containing map data + mapImage.dataUrl
-- Import path is JS-only (no PNG or steganographic decoding flow)
+- Export only canvas (no UI)
+- Format: PNG
 
 ---
 
@@ -162,7 +161,7 @@ Reason:
 
 - Grid-based procedural generator
 - WebGL rendering
-- JS map bundle export/import
+- PNG export
 - Fully client-side
 
 AI must prioritize:
@@ -259,9 +258,3 @@ Date: 2026-03-28
 Modified files: index.html, js/ui.js, js/app.js, js/state.js, locales/en.json, locales/tr.json, locales/en.js, locales/tr.js, js/README.txt
 Description: PNG export now outputs a transparent diamond-shaped map image matching gameplay orientation, and PNG import now restores these diamond exports correctly. Added a new main menu action to export per-tile-type mask PNG images bundled into a ZIP archive.
 Reason: Support gameplay-shaped PNG portability and provide mask assets for all tile types without changing the rest of the application.
-
-
-Date: 2026-03-30
-Modified files: index.html, js/app.js, js/renderer.js, js/state.js, js/ui.js, locales/en.js, locales/en.json, locales/tr.js, locales/tr.json, js/README.txt
-Description: Removed PNG/steganography map import-export workflow and switched to JS-only map bundles. Startup and manual folder loading now use .js files that include both map payload and mapImage.dataUrl. Main menu export now downloads map.js, and map-loading logs were updated to JS-bundle terminology.
-Reason: Eliminate file-origin canvas taint failure paths and keep map portability in a single JS file.

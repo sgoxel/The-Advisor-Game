@@ -107,72 +107,18 @@ window.Game = window.Game || {};
     return grid;
   }
 
-  function loadImageElementFromUrl(src, useAnonymousCors) {
+  function loadImageElement(src) {
     return new Promise((resolve, reject) => {
       const image = new Image();
-      if (useAnonymousCors) image.crossOrigin = "anonymous";
       image.onload = () => resolve(image);
       image.onerror = () => reject(new Error(`Failed to load image: ${src}`));
       image.src = src;
     });
   }
 
-  function shouldTryBlobImageLoad(src) {
-    const safeSrc = String(src || "").trim();
-    if (!safeSrc) return false;
-    if (/^data:/i.test(safeSrc)) return false;
-    if (/^blob:/i.test(safeSrc)) return false;
-    return typeof fetch === "function";
-  }
-
-  async function loadImageElement(src, options = {}) {
-    const safeSrc = String(src || "").trim();
-    if (!safeSrc) throw new Error("Image source is empty.");
-
-    const preferBlob = options && options.preferBlob !== false;
-    let fetchError = null;
-
-    if (preferBlob && shouldTryBlobImageLoad(safeSrc)) {
-      try {
-        const response = await fetch(buildNoCacheUrl(safeSrc), { cache: "no-cache" });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const blob = await response.blob();
-        const objectUrl = URL.createObjectURL(blob);
-        try {
-          const image = await loadImageElementFromUrl(objectUrl, false);
-          image.__simsoftLoadMode = "blob";
-          image.__simsoftOriginalSrc = safeSrc;
-          return image;
-        } finally {
-          URL.revokeObjectURL(objectUrl);
-        }
-      } catch (error) {
-        fetchError = error;
-      }
-    }
-
-    const useAnonymousCors = !isFileProtocol() && /^https?:\/\//i.test(safeSrc);
-    const image = await loadImageElementFromUrl(safeSrc, useAnonymousCors);
-    image.__simsoftLoadMode = fetchError ? "direct-fallback" : "direct";
-    if (fetchError) {
-      image.__simsoftFallbackReason = fetchError && fetchError.message ? fetchError.message : String(fetchError);
-    }
-    image.__simsoftOriginalSrc = safeSrc;
-    return image;
-  }
-
 
   function getExpectedBackgroundResolution(cols, rows) {
-    let maxSize = 4096;
-    try {
-      const gl = State && State.dom ? State.dom.gl : null;
-      const reported = gl ? Number(gl.getParameter(gl.MAX_TEXTURE_SIZE) || 0) : 0;
-      if (Number.isFinite(reported) && reported > 0) {
-        maxSize = Math.max(1024, Math.min(Math.floor(reported), 8192));
-      }
-    } catch (error) {
-      maxSize = 4096;
-    }
+    const maxSize = 4096;
     const safeCols = Math.max(1, Number(cols) || 1);
     const safeRows = Math.max(1, Number(rows) || 1);
     const pxPerCell = Math.max(1, Math.floor(Math.min(maxSize / safeCols, maxSize / safeRows, 64)));
@@ -182,67 +128,7 @@ window.Game = window.Game || {};
     };
   }
 
-  function clampInteger(value, minValue, maxValue, fallbackValue) {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) return fallbackValue;
-    const rounded = Math.round(numeric);
-    return Math.min(maxValue, Math.max(minValue, rounded));
-  }
-
-  function estimateSquareSourceResolutionFromDiamond(imageWidth, imageHeight, cols, rows) {
-    const safeImageWidth = Math.max(1, Number(imageWidth) || 1);
-    const safeImageHeight = Math.max(1, Number(imageHeight) || 1);
-    const safeCols = Math.max(1, Number(cols) || 1);
-    const safeRows = Math.max(1, Number(rows) || 1);
-
-    // Export path pads the rotated diamond image by 2px on each side.
-    const exportPadding = 2;
-    const paddedSide = Math.max(1, Math.min(safeImageWidth, safeImageHeight));
-    const diagonalExtent = Math.max(1, paddedSide - exportPadding * 2);
-    const logicalPerimeter = diagonalExtent * Math.SQRT2;
-    const totalUnits = safeCols + safeRows;
-
-    const estimatedWidth = Math.max(1, Math.round((logicalPerimeter * safeCols) / totalUnits));
-    const estimatedHeight = Math.max(1, Math.round((logicalPerimeter * safeRows) / totalUnits));
-
-    return {
-      width: estimatedWidth,
-      height: estimatedHeight
-    };
-  }
-
   function convertDiamondImageToSquareCanvas(image, cols, rows) {
-    if (!image) return null;
-    const sourceWidth = Math.max(1, image.naturalWidth || image.width || 1);
-    const sourceHeight = Math.max(1, image.naturalHeight || image.height || 1);
-    const estimatedResolution = estimateSquareSourceResolutionFromDiamond(sourceWidth, sourceHeight, cols, rows);
-
-    let resolution = {
-      width: estimatedResolution.width,
-      height: estimatedResolution.height
-    };
-
-    const maxResolution = getExpectedBackgroundResolution(cols, rows);
-    if (resolution.width > maxResolution.width || resolution.height > maxResolution.height) {
-      const scale = Math.min(maxResolution.width / resolution.width, maxResolution.height / resolution.height);
-      resolution = {
-        width: Math.max(1, Math.round(resolution.width * scale)),
-        height: Math.max(1, Math.round(resolution.height * scale))
-      };
-    }
-
-    const canvas = document.createElement("canvas");
-    canvas.width = resolution.width;
-    canvas.height = resolution.height;
-    const ctx = canvas.getContext("2d", { alpha: false });
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.translate(canvas.width / 2, canvas.height / 2);
-    ctx.rotate(-Math.PI / 4);
-    ctx.drawImage(image, -sourceWidth / 2, -sourceHeight / 2, sourceWidth, sourceHeight);
-    return canvas;
-  }
-
-  function convertImageToRotatedBackgroundCanvas(image, cols, rows) {
     if (!image) return null;
     const resolution = getExpectedBackgroundResolution(cols, rows);
     const canvas = document.createElement("canvas");
@@ -250,10 +136,9 @@ window.Game = window.Game || {};
     canvas.height = resolution.height;
     const ctx = canvas.getContext("2d", { alpha: false });
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.translate(0, canvas.height);
-    ctx.rotate(-Math.PI / 2);
-    // After rotation, destination width/height axes are swapped.
-    ctx.drawImage(image, 0, 0, canvas.height, canvas.width);
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate(-Math.PI / 4);
+    ctx.drawImage(image, -image.width / 2, -image.height / 2);
     return canvas;
   }
 
@@ -294,7 +179,160 @@ window.Game = window.Game || {};
       return false;
     }
   }
+
+
+  const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+  const PNG_EMBEDDED_DATA_KEY = "simsoft-map-data";
+  const STEGO_MAGIC = "SMSD";
   const MAP_DATA_SCRIPT_GLOBAL = "__SIMSOFT_IMPORTED_MAP_DATA__";
+
+  function readUint32BigEndian(bytes, offset) {
+    return ((bytes[offset] << 24) >>> 0) + ((bytes[offset + 1] << 16) >>> 0) + ((bytes[offset + 2] << 8) >>> 0) + (bytes[offset + 3] >>> 0);
+  }
+
+  function decodeLatin1(bytes) {
+    let result = "";
+    for (let index = 0; index < bytes.length; index++) {
+      result += String.fromCharCode(bytes[index]);
+    }
+    return result;
+  }
+
+  function decodeUtf8(bytes) {
+    if (!bytes || !bytes.length) return "";
+    if (typeof TextDecoder === "function") {
+      return new TextDecoder("utf-8").decode(bytes);
+    }
+    return decodeLatin1(bytes);
+  }
+
+  function extractStegoPayloadFromImageElement(image) {
+    if (!image || !image.naturalWidth || !image.naturalHeight) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(image, 0, 0);
+    const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+
+    let bitIndex = 0;
+    const readByte = () => {
+      let value = 0;
+      for (let bit = 0; bit < 8; bit++) {
+        const pixelOffset = Math.floor(bitIndex / 3) * 4;
+        const channel = bitIndex % 3;
+        if (pixelOffset + channel >= pixels.length) return null;
+        value = (value << 1) | (pixels[pixelOffset + channel] & 1);
+        bitIndex += 1;
+      }
+      return value;
+    };
+
+    const header = [];
+    for (let i = 0; i < 12; i++) {
+      const byte = readByte();
+      if (byte === null) return null;
+      header.push(byte);
+    }
+
+    const magic = String.fromCharCode(header[0], header[1], header[2], header[3]);
+    if (magic !== STEGO_MAGIC) return null;
+
+    const dataLength = ((header[8] << 24) >>> 0) + ((header[9] << 16) >>> 0) + ((header[10] << 8) >>> 0) + (header[11] >>> 0);
+    if (!Number.isFinite(dataLength) || dataLength <= 0) return null;
+
+    const payloadBytes = new Uint8Array(dataLength);
+    for (let i = 0; i < dataLength; i++) {
+      const byte = readByte();
+      if (byte === null) return null;
+      payloadBytes[i] = byte;
+    }
+
+    return JSON.parse(decodeUtf8(payloadBytes));
+  }
+
+  async function extractEmbeddedMapDataFromPngBlob(blob) {
+    if (!blob || typeof blob.arrayBuffer !== "function") return null;
+
+    try {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      if (bytes.length < PNG_SIGNATURE.length) return null;
+      for (let index = 0; index < PNG_SIGNATURE.length; index++) {
+        if (bytes[index] !== PNG_SIGNATURE[index]) return null;
+      }
+
+      let offset = PNG_SIGNATURE.length;
+      while (offset + 8 <= bytes.length) {
+        const chunkLength = readUint32BigEndian(bytes, offset);
+        offset += 4;
+        const chunkType = decodeLatin1(bytes.subarray(offset, offset + 4));
+        offset += 4;
+        if (offset + chunkLength + 4 > bytes.length) break;
+        const chunkData = bytes.subarray(offset, offset + chunkLength);
+        offset += chunkLength;
+        offset += 4;
+
+        if (chunkType === "iTXt") {
+          let cursor = 0;
+          const keywordEnd = chunkData.indexOf(0, cursor);
+          if (keywordEnd === -1) continue;
+          const keyword = decodeLatin1(chunkData.subarray(0, keywordEnd));
+          cursor = keywordEnd + 1;
+          if (cursor + 2 > chunkData.length) continue;
+          const compressionFlag = chunkData[cursor++];
+          cursor += 1;
+          const languageEnd = chunkData.indexOf(0, cursor);
+          if (languageEnd === -1) continue;
+          cursor = languageEnd + 1;
+          const translatedEnd = chunkData.indexOf(0, cursor);
+          if (translatedEnd === -1) continue;
+          cursor = translatedEnd + 1;
+          if (keyword !== PNG_EMBEDDED_DATA_KEY || compressionFlag !== 0) continue;
+          const textValue = decodeUtf8(chunkData.subarray(cursor));
+          return JSON.parse(textValue);
+        }
+
+        if (chunkType === "tEXt") {
+          const keywordEnd = chunkData.indexOf(0);
+          if (keywordEnd === -1) continue;
+          const keyword = decodeLatin1(chunkData.subarray(0, keywordEnd));
+          if (keyword !== PNG_EMBEDDED_DATA_KEY) continue;
+          const textValue = decodeLatin1(chunkData.subarray(keywordEnd + 1));
+          return JSON.parse(textValue);
+        }
+      }
+    } catch (error) {
+      UI.addLog("Embedded PNG map data could not be read.", error && error.message ? error.message : String(error));
+    }
+
+    return null;
+  }
+
+  async function extractMapDataFromImageSource(imageOrBlob) {
+    if (!imageOrBlob) return null;
+    try {
+      if (imageOrBlob instanceof HTMLImageElement) {
+        const stegoPayload = extractStegoPayloadFromImageElement(imageOrBlob);
+        if (stegoPayload) return stegoPayload;
+        return null;
+      }
+      if (typeof Blob !== "undefined" && imageOrBlob instanceof Blob) {
+        const objectUrl = URL.createObjectURL(imageOrBlob);
+        try {
+          const image = await loadImageElement(objectUrl);
+          const stegoPayload = extractStegoPayloadFromImageElement(image);
+          if (stegoPayload) return stegoPayload;
+        } finally {
+          URL.revokeObjectURL(objectUrl);
+        }
+        return await extractEmbeddedMapDataFromPngBlob(imageOrBlob);
+      }
+    } catch (error) {
+      UI.addLog("Embedded PNG map data could not be decoded.", error && error.message ? error.message : String(error));
+    }
+    return null;
+  }
 
 
   const MAP_CACHE_DB_NAME = "simsoftMapCache";
@@ -335,36 +373,15 @@ window.Game = window.Game || {};
     });
   }
 
-  function convertImageElementToDataUrl(image) {
-    try {
-      if (!image) return "";
-      const width = Math.max(1, image.naturalWidth || image.width || 0);
-      const height = Math.max(1, image.naturalHeight || image.height || 0);
-      if (!width || !height) return "";
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d", { alpha: false });
-      if (!ctx) return "";
-      ctx.drawImage(image, 0, 0, width, height);
-      return canvas.toDataURL("image/png");
-    } catch (error) {
-      return "";
-    }
-  }
-
-  async function cacheImportedMap(seed, payload, imageSource, sourceLabel) {
+  async function cacheImportedMap(seed, payload, pngSource, sourceLabel) {
     const safeSeed = String(seed || "").trim();
     if (!safeSeed || !payload || !supportsIndexedDb()) return;
     try {
       let imageDataUrl = "";
-      if (typeof Blob !== "undefined" && imageSource instanceof Blob) {
-        imageDataUrl = await readBlobAsDataUrl(imageSource);
-      } else if (imageSource instanceof HTMLImageElement && imageSource.src) {
-        imageDataUrl = convertImageElementToDataUrl(imageSource);
-        if (!imageDataUrl && !/^blob:/i.test(String(imageSource.src))) {
-          imageDataUrl = String(imageSource.src);
-        }
+      if (typeof Blob !== "undefined" && pngSource instanceof Blob) {
+        imageDataUrl = await readBlobAsDataUrl(pngSource);
+      } else if (pngSource instanceof HTMLImageElement && pngSource.src) {
+        imageDataUrl = String(pngSource.src);
       }
       if (!imageDataUrl) return;
       const db = await openMapCacheDb();
@@ -407,7 +424,7 @@ window.Game = window.Game || {};
         payload: record.payload,
         image,
         source: `local cache (${record.sourceLabel || "previously loaded map"})`,
-        loadedFromJs: true,
+        loadedFromEmbeddedPng: true,
         loadedFromCache: true
       };
     } catch (error) {
@@ -457,9 +474,10 @@ window.Game = window.Game || {};
     if (!safeSeed || !localMapFileCache.byName.size) return null;
 
     const jsFile = getSeedFileFromCache(safeSeed, "js");
-    if (!jsFile) return null;
+    const pngFile = getSeedFileFromCache(safeSeed, "png");
+    if (!pngFile && !jsFile) return null;
 
-    return await loadMapFilesFromSelectedFolder(safeSeed, jsFile, localMapFileCache.sourceLabel || "selected folder");
+    return await loadMapFilesFromSelectedFolder(safeSeed, jsFile, pngFile, localMapFileCache.sourceLabel || "selected folder");
   }
 
   function stripExtension(fileName) {
@@ -537,8 +555,22 @@ window.Game = window.Game || {};
     return await loadImageElement(dataUrl);
   }
 
-  function getFirstMapEntryFromSelectedFolder() {
+  function getFirstMapPairFromSelectedFolder() {
     if (!localMapFileCache.orderedFiles.length) return null;
+
+    for (const file of localMapFileCache.orderedFiles) {
+      const fileName = String(file && file.name ? file.name : "");
+      if (!/\.png$/i.test(fileName)) continue;
+
+      const baseName = stripExtension(fileName);
+      const jsFile = localMapFileCache.byName.get(`${baseName.toLowerCase()}.js`) || null;
+
+      return {
+        seed: baseName,
+        pngFile: file,
+        jsFile
+      };
+    }
 
     for (const file of localMapFileCache.orderedFiles) {
       const fileName = String(file && file.name ? file.name : "");
@@ -546,6 +578,7 @@ window.Game = window.Game || {};
       const baseName = stripExtension(fileName);
       return {
         seed: baseName,
+        pngFile: null,
         jsFile: file
       };
     }
@@ -553,24 +586,42 @@ window.Game = window.Game || {};
     return null;
   }
 
-  async function loadMapFilesFromSelectedFolder(seed, jsFile, sourceLabel) {
-    if (!jsFile) return null;
+  async function loadMapFilesFromSelectedFolder(seed, jsFile, pngFile, sourceLabel) {
+    if (!pngFile && !jsFile) return null;
 
     try {
-      const payload = await loadMapDataFromJsFile(jsFile);
-      if (!payload) {
-        UI.addLog(`Selected folder .js file did not provide map data for ${seed}.`);
-        return null;
+      let image = null;
+      let payload = null;
+      let loadedFromEmbeddedPng = false;
+      let loadedFromJs = false;
+
+      if (pngFile) {
+        const objectUrl = URL.createObjectURL(pngFile);
+        try {
+          image = await loadImageElement(objectUrl);
+          payload = await extractMapDataFromImageSource(image);
+          loadedFromEmbeddedPng = !!payload;
+        } finally {
+          URL.revokeObjectURL(objectUrl);
+        }
       }
 
-      const image = await loadImageFromPayload(payload);
-      if (!image) {
-        UI.addLog(`Selected folder .js file did not provide mapImage.dataUrl for ${seed}.`);
+      if (!payload && jsFile) {
+        payload = await loadMapDataFromJsFile(jsFile);
+        loadedFromJs = !!payload;
+      }
+
+      if (!image && payload) {
+        image = await loadImageFromPayload(payload);
+      }
+
+      if (!payload || !image) {
+        UI.addLog(`Stored map data could not be found for ${seed}.`, "Provide either a .png file with embedded steganographic map data or a matching .js map data file.");
         return null;
       }
 
       const resolvedSeed = resolveImportedSeed(seed, payload);
-      const cacheSource = image;
+      const cacheSource = pngFile || image;
       await cacheImportedMap(resolvedSeed, payload, cacheSource, sourceLabel || localMapFileCache.sourceLabel || "selected folder");
       if (resolvedSeed !== seed) {
         await cacheImportedMap(seed, payload, cacheSource, sourceLabel || localMapFileCache.sourceLabel || "selected folder");
@@ -580,7 +631,8 @@ window.Game = window.Game || {};
         payload,
         image,
         source: sourceLabel || localMapFileCache.sourceLabel || "selected folder",
-        loadedFromJs: true
+        loadedFromEmbeddedPng,
+        loadedFromJs
       };
     } catch (error) {
       UI.addLog(`Stored map files could not be read for ${seed}.`, error && error.message ? error.message : String(error));
@@ -623,22 +675,22 @@ window.Game = window.Game || {};
 
     UI.addLog(`Local map folder indexed.`, `${indexedCount} direct files scanned from ${rootFolderName}.` + (skippedNestedCount ? ` ${skippedNestedCount} nested files were ignored.` : ""));
 
-    const firstEntry = getFirstMapEntryFromSelectedFolder();
-    if (!firstEntry) {
-      UI.addLog("No loadable map files were found in the selected folder.", "Expected at least one .js map file containing map data and mapImage.dataUrl.");
+    const firstPair = getFirstMapPairFromSelectedFolder();
+    if (!firstPair) {
+      UI.addLog("No loadable map files were found in the selected folder.", "Expected at least one .png or .js map file.");
       return false;
     }
 
     const world = State.world || {};
     const cols = world.cols || Config.DEFAULT_COLS;
     const rows = world.rows || Config.DEFAULT_ROWS;
-    const imported = await loadMapFilesFromSelectedFolder(firstEntry.seed, firstEntry.jsFile, localMapFileCache.sourceLabel || "selected folder");
+    const imported = await loadMapFilesFromSelectedFolder(firstPair.seed, firstPair.jsFile, firstPair.pngFile, localMapFileCache.sourceLabel || "selected folder");
     if (imported && imported.payload && imported.image) {
       applyImportedWorld(imported.seed, cols, rows, imported.payload, imported.image, imported.source);
       return true;
     }
 
-    UI.addLog("Stored map files found in the selected folder could not be loaded.", `First detected map entry: ${firstEntry.seed}.`);
+    UI.addLog("Stored map files found in the selected folder could not be loaded.", `First detected map entry: ${firstPair.seed}.`);
     return false;
   }
 
@@ -652,16 +704,51 @@ window.Game = window.Game || {};
     folderInput.click();
   }
 
-  async function tryLoadMapFromJsPath(seed, jsUrl, sourceLabel) {
+  async function tryLoadMapFromPngPath(seed, pngUrl, sourceLabel) {
+    let sourceImage = null;
+    try {
+      sourceImage = await loadImageElement(pngUrl);
+    } catch (error) {
+      return { imageFound: false, imported: null };
+    }
+
+    try {
+      const payload = await extractMapDataFromImageSource(sourceImage);
+      if (!payload) {
+        return { imageFound: true, imported: null, sourceImage };
+      }
+      const resolvedSeed = resolveImportedSeed(seed, payload);
+      let renderImage = await loadImageFromPayload(payload);
+      if (!renderImage) {
+        renderImage = sourceImage;
+      }
+      await cacheImportedMap(resolvedSeed, payload, renderImage, sourceLabel);
+      if (resolvedSeed !== seed) {
+        await cacheImportedMap(seed, payload, renderImage, sourceLabel);
+      }
+      return {
+        imageFound: true,
+        imported: {
+          seed: resolvedSeed,
+          payload,
+          image: renderImage,
+          source: sourceLabel,
+          loadedFromEmbeddedPng: true,
+          sourceImage
+        }
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async function tryLoadMapFromJsPath(seed, jsUrl, sourceLabel, fallbackImage) {
     let payload = null;
     try {
       payload = await loadMapDataFromJsUrl(jsUrl);
       if (!payload) return null;
-      const image = await loadImageFromPayload(payload);
-      if (!image) {
-        UI.addLog(`JS map bundle loaded but mapImage.dataUrl is missing: ${jsUrl}`);
-        return null;
-      }
+      const image = fallbackImage || await loadImageFromPayload(payload);
+      if (!image) throw new Error(`Map data script did not provide an image and no matching PNG was available: ${jsUrl}`);
       const resolvedSeed = resolveImportedSeed(seed, payload);
       await cacheImportedMap(resolvedSeed, payload, image, sourceLabel);
       if (resolvedSeed !== seed) {
@@ -686,41 +773,61 @@ window.Game = window.Game || {};
     const candidates = [
       {
         key: `${safeSeed}`,
+        pngUrl: `map/${encodeURIComponent(safeSeed)}.png`,
         jsUrl: `map/${encodeURIComponent(safeSeed)}.js`,
-        sourceLabel: "map folder (seed root JS)",
-        label: `${safeSeed}.js in /map`
+        sourceLabel: "map folder (seed root)",
+        label: `${safeSeed} in /map`
       },
       {
         key: `${safeSeed}`,
+        pngUrl: `map/${encodeURIComponent(safeSeed)}/${encodeURIComponent(safeSeed)}.png`,
         jsUrl: `map/${encodeURIComponent(safeSeed)}/${encodeURIComponent(safeSeed)}.js`,
-        sourceLabel: "map folder (seed subfolder JS)",
-        label: `${safeSeed}.js in /map/${safeSeed}`
+        sourceLabel: "map folder (seed subfolder)",
+        label: `${safeSeed} in /map/${safeSeed}`
       },
       {
         key: "map",
+        pngUrl: "map/map.png",
         jsUrl: "map/map.js",
-        sourceLabel: "map folder (fixed map JS)",
-        label: "map.js in /map"
+        sourceLabel: "map folder (fixed map)",
+        label: "map.png in /map"
       }
     ];
 
     let stepIndex = 1;
     for (const candidate of candidates) {
-      UI.addLog(`Startup load step ${stepIndex}/${candidates.length + 1}: trying JS map bundle.`, `Path: ${candidate.jsUrl}`);
+      UI.addLog(`Startup load step ${stepIndex}/5: trying PNG.`, `Path: ${candidate.pngUrl}`);
+      let pngResult = null;
       try {
-        const importedFromJs = await tryLoadMapFromJsPath(candidate.key, candidate.jsUrl, candidate.sourceLabel);
-        if (importedFromJs) {
-          UI.addLog(`Startup load succeeded with JS map bundle.`, `Source: ${candidate.label}`);
-          return importedFromJs;
-        }
-        UI.addLog(`JS map bundle was not usable.`, candidate.jsUrl);
+        pngResult = await tryLoadMapFromPngPath(candidate.key, candidate.pngUrl, candidate.sourceLabel);
       } catch (error) {
-        UI.addLog(`JS map bundle load failed.`, error && error.message ? error.message : String(error));
+        UI.addLog(`Startup PNG step failed.`, error && error.message ? error.message : String(error));
+      }
+
+      if (pngResult && pngResult.imported) {
+        UI.addLog(`Startup load succeeded with PNG.`, `Source: ${candidate.label}`);
+        return pngResult.imported;
+      }
+
+      if (pngResult && pngResult.imageFound) {
+        UI.addLog(`PNG was found but embedded map data could not be decoded.`, `Trying JS sidecar in the same folder: ${candidate.jsUrl}`);
+        try {
+          const importedFromJs = await tryLoadMapFromJsPath(candidate.key, candidate.jsUrl, `${candidate.sourceLabel} JS`, pngResult && pngResult.sourceImage ? pngResult.sourceImage : null);
+          if (importedFromJs) {
+            UI.addLog(`Startup load succeeded with JS sidecar.`, `Source: ${candidate.jsUrl}`);
+            return importedFromJs;
+          }
+          UI.addLog(`JS sidecar did not provide a complete map.`, candidate.jsUrl);
+        } catch (error) {
+          UI.addLog(`JS sidecar load failed.`, error && error.message ? error.message : String(error));
+        }
+      } else {
+        UI.addLog(`PNG file was not found.`, candidate.pngUrl);
       }
       stepIndex += 1;
     }
 
-    UI.addLog(`Startup load step ${candidates.length + 1}/${candidates.length + 1}: generating a new map.`);
+    UI.addLog("Startup load step 5/5: generating a new map.");
     return null;
   }
 
@@ -728,14 +835,18 @@ window.Game = window.Game || {};
     const safeSeed = (seed || "").trim();
     if (!safeSeed) return null;
 
+    const pngUrl = `map/${encodeURIComponent(safeSeed)}.png`;
     const jsUrl = `map/${encodeURIComponent(safeSeed)}.js`;
 
     try {
-      const importedFromJs = await tryLoadMapFromJsPath(safeSeed, jsUrl, "map folder (seed JS)");
-      if (importedFromJs) return importedFromJs;
-      UI.addLog(`No valid JS map bundle found for ${safeSeed}.`, jsUrl);
+      const pngResult = await tryLoadMapFromPngPath(safeSeed, pngUrl, "map folder (seed PNG)");
+      if (pngResult && pngResult.imported) return pngResult.imported;
+      if (pngResult && pngResult.imageFound) {
+        const importedFromJs = await tryLoadMapFromJsPath(safeSeed, jsUrl, "map folder (seed JS)", pngResult && pngResult.sourceImage ? pngResult.sourceImage : null);
+        if (importedFromJs) return importedFromJs;
+      }
     } catch (error) {
-      UI.addLog(`Seed JS map bundle could not be loaded for ${safeSeed}.`, error && error.message ? error.message : String(error));
+      UI.addLog(`Stored seed files could not be loaded for ${safeSeed}.`, error && error.message ? error.message : String(error));
     }
 
     const cached = await tryLoadSeedFilesFromCache(safeSeed);
@@ -784,12 +895,12 @@ window.Game = window.Game || {};
     };
     world.player = {
       ...fallbackPlayer,
-      row: clampInteger(importedPlayer.row, 0, resolvedRows - 1, fallbackPlayer.row),
-      col: clampInteger(importedPlayer.col, 0, resolvedCols - 1, fallbackPlayer.col),
-      startRow: clampInteger(importedPlayer.row, 0, resolvedRows - 1, fallbackPlayer.startRow),
-      startCol: clampInteger(importedPlayer.col, 0, resolvedCols - 1, fallbackPlayer.startCol),
-      targetRow: clampInteger(importedPlayer.row, 0, resolvedRows - 1, fallbackPlayer.targetRow),
-      targetCol: clampInteger(importedPlayer.col, 0, resolvedCols - 1, fallbackPlayer.targetCol),
+      row: Number.isInteger(importedPlayer.row) ? importedPlayer.row : fallbackPlayer.row,
+      col: Number.isInteger(importedPlayer.col) ? importedPlayer.col : fallbackPlayer.col,
+      startRow: Number.isInteger(importedPlayer.row) ? importedPlayer.row : fallbackPlayer.startRow,
+      startCol: Number.isInteger(importedPlayer.col) ? importedPlayer.col : fallbackPlayer.startCol,
+      targetRow: Number.isInteger(importedPlayer.row) ? importedPlayer.row : fallbackPlayer.targetRow,
+      targetCol: Number.isInteger(importedPlayer.col) ? importedPlayer.col : fallbackPlayer.targetCol,
       direction: importedPlayer.direction || fallbackPlayer.direction,
       moving: false,
       progress: 1,
@@ -818,58 +929,36 @@ window.Game = window.Game || {};
       : "";
     const shouldTreatImageAsDiamond = importedImageShape === "diamond" || (!importedImageShape && imageLooksDiamondShaped(image));
 
-    const sourceWidth = image.naturalWidth || image.width || 0;
-    const sourceHeight = image.naturalHeight || image.height || 0;
-    const backgroundMode = shouldTreatImageAsDiamond ? "diamond->square" : "rotated-square";
     let backgroundCanvas = null;
     if (shouldTreatImageAsDiamond) {
       backgroundCanvas = convertDiamondImageToSquareCanvas(image, resolvedCols, resolvedRows);
     } else {
-      backgroundCanvas = convertImageToRotatedBackgroundCanvas(image, resolvedCols, resolvedRows);
-    }
-    if (!backgroundCanvas) {
-      backgroundCanvas = convertImageToRotatedBackgroundCanvas(image, resolvedCols, resolvedRows);
+      const sourceWidth = image.naturalWidth || image.width;
+      const sourceHeight = image.naturalHeight || image.height;
+      backgroundCanvas = document.createElement("canvas");
+      backgroundCanvas.width = sourceHeight;
+      backgroundCanvas.height = sourceWidth;
+
+      const backgroundCtx = backgroundCanvas.getContext("2d", { alpha: false });
+      backgroundCtx.translate(0, backgroundCanvas.height);
+      backgroundCtx.rotate(-Math.PI / 2);
+      backgroundCtx.drawImage(image, 0, 0);
     }
 
     render.worldBackgroundCanvas = backgroundCanvas;
     render.needsBackgroundRebuild = false;
     render.needsBackgroundUpload = true;
     render.backgroundTextureReady = false;
-    render.backgroundUploadBlocked = false;
-    render.backgroundSource = `imported:${sourceLabel || 'map'}`;
-    render.preserveBackground = true;
 
     UI.syncSettingsInputs();
     UI.updateParamUI();
     Renderer.fitCameraToWorld();
     Renderer.markDirty();
     const sourceText = sourceLabel ? `Source: ${sourceLabel}.` : "";
-    const spawnTile = world.terrain && world.terrain[world.player.row]
-      ? world.terrain[world.player.row][world.player.col]
-      : null;
-    const spawnBlocked = !!(spawnTile && spawnTile.tags && typeof spawnTile.tags.has === "function" && spawnTile.tags.has("blocked"));
-    const spawnTileType = spawnTile && spawnTile.type ? spawnTile.type : "unknown";
-    UI.addLog(
-      `Stored map files loaded for seed ${seed}.`,
-      `${sourceText} Loaded map image and map data for ${seed}. SourceImage: ${sourceWidth}x${sourceHeight}. BackgroundMode: ${backgroundMode}. Canvas: ${backgroundCanvas.width}x${backgroundCanvas.height}. PreserveBackground: true.`.trim()
-    );
-    UI.addLog(
-      `Imported spawn tile resolved.`,
-      `Player row=${world.player.row}, col=${world.player.col}, tileType=${spawnTileType}, blocked=${spawnBlocked}`
-    );
-    UI.addLog(
-      `Quad texture source set to imported map image.`,
-      `Background source: ${render.backgroundSource}. Canvas: ${backgroundCanvas.width}x${backgroundCanvas.height}.`
-    );
-    if (backgroundCanvas.width !== sourceWidth || backgroundCanvas.height !== sourceHeight) {
-      UI.addLog(
-        `Imported map image resized for quad texture upload.`,
-        `SourceImage: ${sourceWidth}x${sourceHeight} -> Canvas: ${backgroundCanvas.width}x${backgroundCanvas.height}`
-      );
-    }
+    UI.addLog(`Stored map files loaded for seed ${seed}.`, `${sourceText} Loaded map image and map data for ${seed}.`.trim());
   }
 
-  function applyGeneratedWorld(seed, cols, rows, options = {}) {
+  function applyGeneratedWorld(seed, cols, rows) {
     const world = State.world;
     world.seed = seed;
     world.cols = cols;
@@ -895,39 +984,25 @@ window.Game = window.Game || {};
     world.terrain = generated.grid;
     world.params = generated.params;
 
-    const preserveBackground = !!(options && options.preserveBackground);
-    // If preserving an externally provided map image background, do not trigger a full
-    // background rebuild which would overwrite the provided image.
-    State.render.preserveBackground = preserveBackground;
-    State.render.needsBackgroundRebuild = !preserveBackground;
+    State.render.needsBackgroundRebuild = true;
     State.render.needsBackgroundUpload = true;
     State.render.backgroundTextureReady = false;
-    State.render.backgroundUploadBlocked = false;
     UI.syncSettingsInputs();
     UI.updateParamUI();
     Renderer.fitCameraToWorld();
     Renderer.markDirty();
     UI.addLog(I18n.t("logs.worldRebuilt", { seed, cols, rows }));
-    if (preserveBackground) {
-      UI.addLog(`World generated for seed ${seed}, preserving imported background image.`);
-    }
   }
 
   async function rebuildWorld(seed, cols, rows, options = {}) {
-    UI.showLoading();
-    try {
-      const imported = options && options.preferFixedStartupMap
-        ? await tryLoadStartupSequence(seed)
-        : await tryLoadSeedFiles(seed);
-      if (imported && imported.payload && imported.image) {
-        applyImportedWorld(imported.seed || seed, cols, rows, imported.payload, imported.image, imported.source);
-        return;
-      }
-
-      applyGeneratedWorld(seed, cols, rows);
-    } finally {
-      UI.hideLoading();
+    const imported = options && options.preferFixedStartupMap
+      ? await tryLoadStartupSequence(seed)
+      : await tryLoadSeedFiles(seed);
+    if (imported && imported.payload && imported.image) {
+      applyImportedWorld(imported.seed || seed, cols, rows, imported.payload, imported.image, imported.source);
+      return;
     }
+    applyGeneratedWorld(seed, cols, rows);
   }
 
   function updateWorldSummary(seed, cols, rows) {
@@ -966,11 +1041,6 @@ window.Game = window.Game || {};
       Config.MIN_NOISE_GRID_DIVISIONS,
       Config.MAX_NOISE_GRID_DIVISIONS
     );
-    const curveAngle = Utils.clamp(
-      Number(dom.curveAngleInput && dom.curveAngleInput.value) || Config.DEFAULT_CURVE_ANGLE,
-      Config.MIN_CURVE_ANGLE,
-      Config.MAX_CURVE_ANGLE
-    );
     const showGrid = !!(dom.showGridInput && dom.showGridInput.checked);
     const reliefEnabled = !!(dom.reliefEnabledInput && dom.reliefEnabledInput.checked);
     const sunAzimuth = Utils.clamp(
@@ -1003,7 +1073,6 @@ window.Game = window.Game || {};
     State.camera.depthStrength = depthStrength;
     State.camera.blendPixelSize = blendPixelSize;
     State.camera.blendStrength = blendStrength;
-    State.camera.curveAngle = curveAngle;
     State.camera.noiseGridDivisions = noiseGridDivisions;
     State.camera.showGrid = showGrid;
     State.camera.reliefEnabled = reliefEnabled;

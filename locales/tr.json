@@ -90,7 +90,7 @@
     "dialogChoice": "Diyalog seçimi yapıldı: {{choice}}",
     "worldRebuilt": "Dünya yeniden oluşturuldu. SEED={{seed}}, boyut={{cols}}x{{rows}}",
     "settingsApplied": "Ayarlar uygulandı. Yeni SEED={{seed}}, yeni boyut={{cols}}x{{rows}}",
-    "fileModeWarning": "BİLGİ: Uygulama file:// üzerinden açıldı. JS harita paketleri görseli veri olarak içerdiği için file-origin doku yükleme sorunlarını azaltır.",
+    "fileModeWarning": "BİLGİ: Uygulama file:// üzerinden açıldı. Chrome güvenlik politikası nedeniyle DevTools'ta file origin uyarısı görünebilir. En temiz çalışma için local server kullanın.",
     "appStarted": "Uygulama başlatıldı.",
     "windowResized": "Pencere yeniden boyutlandırıldı.",
     "runtimeError": "HATA: Çalışma zamanı hatası yakalandı.",
@@ -110,9 +110,9 @@
     "resourceLoadError": "Kaynak yükleme hatası",
     "tag": "Etiket",
     "exportCompleted": "Dışa aktarma tamamlandı. Dosya indirildi: {{filename}}",
-    "exportFailed": "Dışa aktarma başarısız oldu. Dosya oluşturulamadı.",
+    "exportFailed": "Dışa aktarma başarısız oldu. Görüntü oluşturulamadı.",
     "mapDataExportCompleted": "Harita verisi dışa aktarma tamamlandı. Dosya indirildi: {{filename}}",
-    "mapDataExportFailed": "Harita verisi dışa aktarma başarısız oldu. JS dosyası oluşturulamadı."
+    "mapDataExportFailed": "Harita verisi dışa aktarma başarısız oldu. TXT dosyası oluşturulamadı."
   },
   "paramValues": {
     "exists": "Var",
@@ -124,7 +124,7 @@
   },
   "menu": {
     "githubPage": "Github Sayfası",
-    "save": "Harita JS Dışa Aktar",
+    "save": "Harita Görselini Dışa Aktar",
     "load": "Haritayı Yükle",
     "exportMapData": "Harita Verisini Dışa Aktar",
     "exportMasks": "Döşeme Maskelerini Dışa Aktar"
